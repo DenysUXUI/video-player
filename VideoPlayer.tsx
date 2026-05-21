@@ -13,11 +13,14 @@ import {
     useState,
     useRef,
     useEffect,
+    useCallback,
+    useMemo,
     type CSSProperties,
     type KeyboardEvent as ReactKeyboardEvent,
     type MouseEvent as ReactMouseEvent,
     type PointerEvent as ReactPointerEvent,
     type ReactNode,
+    type RefObject,
 } from "react"
 
 export interface Props {
@@ -208,12 +211,10 @@ function getTheaterStyle(framePadding: number, transition = "none"): CSSProperti
     }
 }
 
-type ControlActivateEvent = ReactMouseEvent<HTMLElement> | ReactKeyboardEvent<HTMLElement>
-
 // Reusable icon control for controls row
 function ControlBtn({ ariaLabel, onClick, onMouseEnter, onMouseLeave, onMouseDown, onMouseUp, buttonStyle, children }: {
     ariaLabel: string
-    onClick: (e: ControlActivateEvent) => void
+    onClick: (e: ReactMouseEvent<HTMLButtonElement>) => void
     onMouseEnter: () => void
     onMouseLeave: () => void
     onMouseDown?: () => void
@@ -245,6 +246,165 @@ function ControlBtn({ ariaLabel, onClick, onMouseEnter, onMouseLeave, onMouseDow
             </span>
         </button>
     )
+}
+
+/**
+ * Theater-mode state machine.
+ *
+ * Owns the open/close transitions, the Escape-to-close listener, the
+ * rAF-throttled resize handler, and the native mobile-fullscreen fallback.
+ * Extracted so the main component stays focused on playback state.
+ *
+ * `onActivate` is called whenever the user interacts with theater mode
+ * (open or close) so the parent can reveal controls and reset auto-hide.
+ */
+function useTheaterMode({
+    rootRef,
+    videoRef,
+    padding,
+    onActivate,
+}: {
+    rootRef: RefObject<HTMLDivElement>
+    videoRef: RefObject<HTMLVideoElement>
+    padding: number
+    onActivate: () => void
+}) {
+    const expandTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const smallRect = useRef<DOMRect | null>(null)
+    const nativeFsCleanup = useRef<(() => void) | null>(null)
+    const [isExpanded, setIsExpanded] = useState(false)
+    const [theaterStyle, setTheaterStyle] = useState<CSSProperties | null>(null)
+
+    // Clean up timers and any active native-fullscreen listeners on unmount
+    useEffect(() => () => {
+        if (expandTimer.current) clearTimeout(expandTimer.current)
+        if (nativeFsCleanup.current) nativeFsCleanup.current()
+    }, [])
+
+    const closeExpand = useCallback(() => {
+        if (expandTimer.current) clearTimeout(expandTimer.current)
+        const current = rootRef.current?.getBoundingClientRect()
+        const small = smallRect.current
+        if (!current || !small || prefersReducedMotion()) {
+            setIsExpanded(false)
+            setTheaterStyle(null)
+            return
+        }
+
+        setTheaterStyle(rectToFixedStyle(current))
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                setTheaterStyle(rectToFixedStyle(
+                    small,
+                    `top ${THEATER_CLOSE_MS}ms ${THEATER_CLOSE_EASE}, left ${THEATER_CLOSE_MS}ms ${THEATER_CLOSE_EASE}, width ${THEATER_CLOSE_MS}ms ${THEATER_CLOSE_EASE}, height ${THEATER_CLOSE_MS}ms ${THEATER_CLOSE_EASE}`
+                ))
+            })
+        })
+
+        expandTimer.current = setTimeout(() => {
+            setIsExpanded(false)
+            setTheaterStyle(null)
+            expandTimer.current = null
+        }, THEATER_CLOSE_MS + 30)
+    }, [rootRef])
+
+    // Escape key closes theater mode
+    useEffect(() => {
+        if (!isExpanded) return
+        const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeExpand() }
+        window.addEventListener("keydown", onKey)
+        return () => window.removeEventListener("keydown", onKey)
+    }, [isExpanded, closeExpand])
+
+    // Re-fit theater frame to viewport on resize (rAF-throttled)
+    useEffect(() => {
+        if (!isExpanded) return
+        let rafId: number | null = null
+        const onResize = () => {
+            if (expandTimer.current) return
+            if (rafId !== null) return
+            rafId = requestAnimationFrame(() => {
+                rafId = null
+                setTheaterStyle(getTheaterStyle(padding))
+            })
+        }
+        window.addEventListener("resize", onResize)
+        return () => {
+            if (rafId !== null) cancelAnimationFrame(rafId)
+            window.removeEventListener("resize", onResize)
+        }
+    }, [isExpanded, padding])
+
+    const openNativeFullscreen = useCallback(() => {
+        const video = videoRef.current as NativeFullscreenVideo | null
+        if (!video) return false
+
+        const resetNativeControls = () => {
+            if (document.fullscreenElement) return
+            video.controls = false
+            document.removeEventListener("fullscreenchange", resetNativeControls)
+            video.removeEventListener("webkitendfullscreen", resetNativeControls)
+            nativeFsCleanup.current = null
+        }
+
+        video.controls = true
+        document.addEventListener("fullscreenchange", resetNativeControls)
+        video.addEventListener("webkitendfullscreen", resetNativeControls)
+        nativeFsCleanup.current = () => {
+            video.controls = false
+            document.removeEventListener("fullscreenchange", resetNativeControls)
+            video.removeEventListener("webkitendfullscreen", resetNativeControls)
+            nativeFsCleanup.current = null
+        }
+
+        try {
+            if (video.webkitEnterFullscreen && !video.webkitDisplayingFullscreen) {
+                video.webkitEnterFullscreen()
+                return true
+            }
+            if (video.requestFullscreen) {
+                video.requestFullscreen().catch(resetNativeControls)
+                return true
+            }
+        } catch {
+            resetNativeControls()
+            return false
+        }
+
+        resetNativeControls()
+        return false
+    }, [videoRef])
+
+    const toggleExpand = useCallback((e: ReactMouseEvent<HTMLButtonElement>) => {
+        e.stopPropagation()
+        onActivate()
+        if (!isExpanded) {
+            if (shouldUseNativeMobileFullscreen() && openNativeFullscreen()) return
+
+            const rect = rootRef.current?.getBoundingClientRect() ?? null
+            smallRect.current = rect
+            if (expandTimer.current) clearTimeout(expandTimer.current)
+
+            if (rect && !prefersReducedMotion()) {
+                setTheaterStyle(rectToFixedStyle(rect))
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        setTheaterStyle(getTheaterStyle(
+                            padding,
+                            `top ${THEATER_OPEN_MS}ms ${THEATER_OPEN_EASE}, left ${THEATER_OPEN_MS}ms ${THEATER_OPEN_EASE}, width ${THEATER_OPEN_MS}ms ${THEATER_OPEN_EASE}, height ${THEATER_OPEN_MS}ms ${THEATER_OPEN_EASE}`
+                        ))
+                    })
+                })
+            } else {
+                setTheaterStyle(getTheaterStyle(padding))
+            }
+            setIsExpanded(true)
+        } else {
+            closeExpand()
+        }
+    }, [isExpanded, padding, rootRef, onActivate, openNativeFullscreen, closeExpand])
+
+    return { isExpanded, theaterStyle, toggleExpand }
 }
 
 /**
@@ -282,9 +442,6 @@ export default function VideoPlayer({
     const progressRef = useRef<HTMLDivElement>(null)
     const isScrubbingRef = useRef(false)
     const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-    const expandTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-    const smallRect = useRef<DOMRect | null>(null)
-    const nativeFsCleanup = useRef<(() => void) | null>(null)
 
     const [isPlaying, setIsPlaying] = useState(false)
     const [isMuted, setIsMuted] = useState(mutedByDefault)
@@ -294,13 +451,9 @@ export default function VideoPlayer({
     const [hoverTime, setHoverTime] = useState<number | null>(null)
     const [hoverPercent, setHoverPercent] = useState(0)
     const [controlsVisible, setControlsVisible] = useState(true)
-    const [isExpanded, setIsExpanded] = useState(false)
-    const [theaterStyle, setTheaterStyle] = useState<CSSProperties | null>(null)
 
-    const [playHover, setPlayHover] = useState(false)
+    const [hoveredButton, setHoveredButton] = useState<"play" | "mute" | "expand" | null>(null)
     const [playActive, setPlayActive] = useState(false)
-    const [muteHover, setMuteHover] = useState(false)
-    const [expandHover, setExpandHover] = useState(false)
     const [progressFocused, setProgressFocused] = useState(false)
     const [hasEverPlayed, setHasEverPlayed] = useState(false)
     const [loadError, setLoadError] = useState(false)
@@ -312,10 +465,21 @@ export default function VideoPlayer({
         hideTimer.current = setTimeout(() => setControlsVisible(false), 2200)
     }
 
+    // Theater mode lives in its own hook (open/close, escape, resize, native FS)
+    const handleTheaterActivate = useCallback(() => {
+        setControlsVisible(true)
+        if (hideTimer.current) clearTimeout(hideTimer.current)
+    }, [])
+    const { isExpanded, theaterStyle, toggleExpand } = useTheaterMode({
+        rootRef,
+        videoRef,
+        padding,
+        onActivate: handleTheaterActivate,
+    })
+
+    // Clear the auto-hide timer on unmount (theater-mode timers are cleaned in the hook)
     useEffect(() => () => {
         if (hideTimer.current) clearTimeout(hideTimer.current)
-        if (expandTimer.current) clearTimeout(expandTimer.current)
-        if (nativeFsCleanup.current) nativeFsCleanup.current()
     }, [])
 
     useEffect(() => {
@@ -341,59 +505,6 @@ export default function VideoPlayer({
         setLoadError(false)
     }, [sourceType, videoUrl, videoFile])
 
-    const closeExpand = () => {
-        if (expandTimer.current) clearTimeout(expandTimer.current)
-        const current = rootRef.current?.getBoundingClientRect()
-        const small = smallRect.current
-        if (!current || !small || prefersReducedMotion()) {
-            setIsExpanded(false)
-            setTheaterStyle(null)
-            return
-        }
-
-        setTheaterStyle(rectToFixedStyle(current))
-        requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-                setTheaterStyle(rectToFixedStyle(
-                    small,
-                    `top ${THEATER_CLOSE_MS}ms ${THEATER_CLOSE_EASE}, left ${THEATER_CLOSE_MS}ms ${THEATER_CLOSE_EASE}, width ${THEATER_CLOSE_MS}ms ${THEATER_CLOSE_EASE}, height ${THEATER_CLOSE_MS}ms ${THEATER_CLOSE_EASE}`
-                ))
-            })
-        })
-
-        expandTimer.current = setTimeout(() => {
-            setIsExpanded(false)
-            setTheaterStyle(null)
-            expandTimer.current = null
-        }, THEATER_CLOSE_MS + 30)
-    }
-
-    // Escape key to close theater mode
-    useEffect(() => {
-        if (!isExpanded) return
-        const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeExpand() }
-        window.addEventListener("keydown", onKey)
-        return () => window.removeEventListener("keydown", onKey)
-    }, [isExpanded])
-
-    useEffect(() => {
-        if (!isExpanded) return
-        let rafId: number | null = null
-        const onResize = () => {
-            if (expandTimer.current) return
-            if (rafId !== null) return
-            rafId = requestAnimationFrame(() => {
-                rafId = null
-                setTheaterStyle(getTheaterStyle(padding))
-            })
-        }
-        window.addEventListener("resize", onResize)
-        return () => {
-            if (rafId !== null) cancelAnimationFrame(rafId)
-            window.removeEventListener("resize", onResize)
-        }
-    }, [isExpanded, padding])
-
     const togglePlay = () => {
         const v = videoRef.current
         if (!v) return
@@ -410,85 +521,12 @@ export default function VideoPlayer({
         }
     }
 
-    const toggleMute = (e: ControlActivateEvent) => {
+    const toggleMute = (e: ReactMouseEvent<HTMLButtonElement>) => {
         e.stopPropagation()
         const v = videoRef.current
         if (!v) return
         v.muted = !isMuted
         setIsMuted(!isMuted)
-    }
-
-    const openNativeFullscreen = () => {
-        const video = videoRef.current as NativeFullscreenVideo | null
-        if (!video) return false
-
-        setControlsVisible(true)
-        if (hideTimer.current) clearTimeout(hideTimer.current)
-
-        const resetNativeControls = () => {
-            if (document.fullscreenElement) return
-            video.controls = false
-            document.removeEventListener("fullscreenchange", resetNativeControls)
-            video.removeEventListener("webkitendfullscreen", resetNativeControls)
-            nativeFsCleanup.current = null
-        }
-
-        video.controls = true
-        document.addEventListener("fullscreenchange", resetNativeControls)
-        video.addEventListener("webkitendfullscreen", resetNativeControls)
-        nativeFsCleanup.current = () => {
-            video.controls = false
-            document.removeEventListener("fullscreenchange", resetNativeControls)
-            video.removeEventListener("webkitendfullscreen", resetNativeControls)
-            nativeFsCleanup.current = null
-        }
-
-        try {
-            if (video.webkitEnterFullscreen && !video.webkitDisplayingFullscreen) {
-                video.webkitEnterFullscreen()
-                return true
-            }
-
-            if (video.requestFullscreen) {
-                video.requestFullscreen().catch(resetNativeControls)
-                return true
-            }
-        } catch {
-            resetNativeControls()
-            return false
-        }
-
-        resetNativeControls()
-        return false
-    }
-
-    const toggleExpand = (e: ControlActivateEvent) => {
-        e.stopPropagation()
-        if (!isExpanded) {
-            if (shouldUseNativeMobileFullscreen() && openNativeFullscreen()) return
-
-            const rect = rootRef.current?.getBoundingClientRect() ?? null
-            smallRect.current = rect
-            if (expandTimer.current) clearTimeout(expandTimer.current)
-
-            if (rect && !prefersReducedMotion()) {
-                setTheaterStyle(rectToFixedStyle(rect))
-                requestAnimationFrame(() => {
-                    requestAnimationFrame(() => {
-                        setTheaterStyle(getTheaterStyle(
-                            padding,
-                            `top ${THEATER_OPEN_MS}ms ${THEATER_OPEN_EASE}, left ${THEATER_OPEN_MS}ms ${THEATER_OPEN_EASE}, width ${THEATER_OPEN_MS}ms ${THEATER_OPEN_EASE}, height ${THEATER_OPEN_MS}ms ${THEATER_OPEN_EASE}`
-                        ))
-                    })
-                })
-            } else {
-                setTheaterStyle(getTheaterStyle(padding))
-            }
-            setIsExpanded(true)
-        } else {
-            closeExpand()
-        }
-        setControlsVisible(true)
     }
 
     const getProgressRatioFromClientX = (clientX: number) => {
@@ -581,6 +619,64 @@ export default function VideoPlayer({
         if (isPlaying) scheduleHide()
     }
 
+    // Memoized button styles — keep object identity stable across renders
+    // unless one of the visual props or the hover/active state actually changes.
+    const baseButtonStyle = useMemo<CSSProperties>(() => ({
+        appearance: "none",
+        WebkitAppearance: "none",
+        width: controlButtonSize,
+        height: controlButtonSize,
+        borderRadius: controlButtonRadius,
+        border: `${controlButtonBorderWidth}px solid ${controlButtonBorderColor}`,
+        background: controlButtonColor,
+        backdropFilter: `saturate(160%) blur(${controlButtonBlur}px)`,
+        WebkitBackdropFilter: `saturate(160%) blur(${controlButtonBlur}px)`,
+        display: "grid",
+        placeItems: "center",
+        color: "white",
+        font: "inherit",
+        lineHeight: 0,
+        cursor: "pointer",
+        flexShrink: 0,
+        minWidth: controlButtonSize,
+        maxWidth: controlButtonSize,
+        minHeight: controlButtonSize,
+        maxHeight: controlButtonSize,
+        margin: 0,
+        padding: 0,
+        boxSizing: "border-box",
+        position: "relative",
+        overflow: "hidden",
+        isolation: "isolate",
+        backgroundClip: "padding-box",
+        outline: "none",
+        transition: "transform 0.15s ease, background 0.15s, opacity 0.15s",
+    }), [
+        controlButtonSize,
+        controlButtonRadius,
+        controlButtonBorderWidth,
+        controlButtonBorderColor,
+        controlButtonColor,
+        controlButtonBlur,
+    ])
+
+    const playButtonStyle = useMemo<CSSProperties>(() => ({
+        ...baseButtonStyle,
+        transform: playActive
+            ? "scale(0.96)"
+            : hoveredButton === "play" ? "scale(1.04)" : "scale(1)",
+    }), [baseButtonStyle, hoveredButton, playActive])
+
+    const muteButtonStyle = useMemo<CSSProperties>(() => ({
+        ...baseButtonStyle,
+        transform: hoveredButton === "mute" ? "scale(1.04)" : "scale(1)",
+    }), [baseButtonStyle, hoveredButton])
+
+    const expandButtonStyle = useMemo<CSSProperties>(() => ({
+        ...baseButtonStyle,
+        transform: hoveredButton === "expand" ? "scale(1.04)" : "scale(1)",
+    }), [baseButtonStyle, hoveredButton])
+
     // Resolve the actual video source — file upload takes priority over URL
     const effectiveSrc = (sourceType === "upload" ? videoFile : videoUrl) || undefined
 
@@ -602,40 +698,6 @@ export default function VideoPlayer({
         : "--:--"
     const showProgressTooltip = hoverTime !== null && durationSeconds > 0
     const progressTooltipPercent = Math.min(98, Math.max(2, hoverPercent * 100))
-    const getControlButtonStyle = (hover: boolean, active = false): CSSProperties => {
-        return {
-            appearance: "none",
-            WebkitAppearance: "none",
-            width: controlButtonSize,
-            height: controlButtonSize,
-            borderRadius: controlButtonRadius,
-            border: `${controlButtonBorderWidth}px solid ${controlButtonBorderColor}`,
-            background: controlButtonColor,
-            backdropFilter: `saturate(160%) blur(${controlButtonBlur}px)`,
-            WebkitBackdropFilter: `saturate(160%) blur(${controlButtonBlur}px)`,
-            display: "grid",
-            placeItems: "center",
-            color: "white",
-            font: "inherit",
-            lineHeight: 0,
-            cursor: "pointer",
-            flexShrink: 0,
-            minWidth: controlButtonSize,
-            maxWidth: controlButtonSize,
-            minHeight: controlButtonSize,
-            maxHeight: controlButtonSize,
-            margin: 0,
-            padding: 0,
-            boxSizing: "border-box",
-            position: "relative",
-            overflow: "hidden",
-            isolation: "isolate",
-            backgroundClip: "padding-box",
-            outline: "none",
-            transform: active ? "scale(0.96)" : hover ? "scale(1.04)" : "scale(1)",
-            transition: "transform 0.15s ease, background 0.15s, opacity 0.15s",
-        }
-    }
 
     return (
         <div
@@ -755,11 +817,11 @@ export default function VideoPlayer({
                     <ControlBtn
                         ariaLabel={isPlaying ? "Pause" : "Play"}
                         onClick={(e) => { e.stopPropagation(); togglePlay() }}
-                        onMouseEnter={() => setPlayHover(true)}
-                        onMouseLeave={() => { setPlayHover(false); setPlayActive(false) }}
+                        onMouseEnter={() => setHoveredButton("play")}
+                        onMouseLeave={() => { setHoveredButton(null); setPlayActive(false) }}
                         onMouseDown={() => setPlayActive(true)}
                         onMouseUp={() => setPlayActive(false)}
-                        buttonStyle={getControlButtonStyle(playHover, playActive)}
+                        buttonStyle={playButtonStyle}
                     >
                         {isPlaying ? <IconPause /> : <IconPlay />}
                     </ControlBtn>
@@ -872,9 +934,9 @@ export default function VideoPlayer({
                     <ControlBtn
                         ariaLabel={isMuted ? "Unmute" : "Mute"}
                         onClick={toggleMute}
-                        onMouseEnter={() => setMuteHover(true)}
-                        onMouseLeave={() => setMuteHover(false)}
-                        buttonStyle={getControlButtonStyle(muteHover)}
+                        onMouseEnter={() => setHoveredButton("mute")}
+                        onMouseLeave={() => setHoveredButton(null)}
+                        buttonStyle={muteButtonStyle}
                     >
                         {isMuted ? <IconVolumeOff /> : <IconVolumeOn />}
                     </ControlBtn>
@@ -883,9 +945,9 @@ export default function VideoPlayer({
                     <ControlBtn
                         ariaLabel={isExpanded ? "Exit theater mode" : "Theater mode"}
                         onClick={toggleExpand}
-                        onMouseEnter={() => setExpandHover(true)}
-                        onMouseLeave={() => setExpandHover(false)}
-                        buttonStyle={getControlButtonStyle(expandHover)}
+                        onMouseEnter={() => setHoveredButton("expand")}
+                        onMouseLeave={() => setHoveredButton(null)}
+                        buttonStyle={expandButtonStyle}
                     >
                         {isExpanded ? <IconCollapse /> : <IconExpand />}
                     </ControlBtn>
