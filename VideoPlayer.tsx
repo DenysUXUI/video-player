@@ -5,6 +5,7 @@
  * animated theater mode, keyboard-accessible custom controls, and full
  * Framer Property Controls.
  *
+ * Version: 1.0.0
  * License: MIT
  */
 
