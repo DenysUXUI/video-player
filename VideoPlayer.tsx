@@ -5,6 +5,8 @@
  * animated theater mode, keyboard-accessible custom controls, and full
  * Framer Property Controls.
  *
+ * Icons inspired by Feather Icons (MIT) — https://feathericons.com
+ *
  * License: MIT
  */
 
@@ -23,11 +25,17 @@ import {
     type RefObject,
 } from "react"
 
+export interface ThumbnailImage {
+    src: string
+    srcSet?: string
+    alt?: string
+}
+
 export interface Props {
     sourceType: "url" | "upload"
     videoUrl: string
     videoFile: string
-    thumbnailUrl: string
+    thumbnail?: ThumbnailImage
     loop: boolean
     mutedByDefault: boolean
     objectFit: "cover" | "contain"
@@ -53,6 +61,18 @@ function formatTime(secs: number): string {
     const m = Math.floor(secs / 60)
     const s = Math.floor(secs % 60)
     return `${m}:${s.toString().padStart(2, "0")}`
+}
+
+// Block dangerous URL schemes before passing user input to <video src>.
+// Allows the normal cases (https, http, blob, data:video/*, framer uploads)
+// and rejects javascript:, vbscript:, and file: which have no business in a media player.
+function isSafeMediaUrl(url: string | undefined): boolean {
+    if (!url) return false
+    const trimmed = url.trim().toLowerCase()
+    if (trimmed.startsWith("javascript:")) return false
+    if (trimmed.startsWith("vbscript:")) return false
+    if (trimmed.startsWith("file:")) return false
+    return true
 }
 
 function IconPlay() {
@@ -417,7 +437,7 @@ export default function VideoPlayer({
     sourceType = "url",
     videoUrl = "",
     videoFile = "",
-    thumbnailUrl = "",
+    thumbnail,
     loop = true,
     mutedByDefault = true,
     objectFit = "cover",
@@ -500,9 +520,15 @@ export default function VideoPlayer({
         }).catch(() => {})
     }, [autoplay, sourceType, videoFile, videoUrl, autoHideControls])
 
-    // Reset load error when source changes
+    // Reset playback + UI state when the source changes so a new video starts clean
     useEffect(() => {
         setLoadError(false)
+        setHasEverPlayed(false)
+        setIsPlaying(false)
+        setCurrentTime(0)
+        setDurationSeconds(0)
+        setHoverTime(null)
+        setHoverPercent(0)
     }, [sourceType, videoUrl, videoFile])
 
     const togglePlay = () => {
@@ -514,10 +540,15 @@ export default function VideoPlayer({
             setControlsVisible(true)
             if (hideTimer.current) clearTimeout(hideTimer.current)
         } else {
-            v.play()
+            // Optimistic UI; roll back if the browser rejects play()
+            // (iOS Safari rejects when there is no user gesture context)
             setIsPlaying(true)
             setHasEverPlayed(true)
             scheduleHide()
+            const playPromise = v.play()
+            if (playPromise && typeof playPromise.catch === "function") {
+                playPromise.catch(() => setIsPlaying(false))
+            }
         }
     }
 
@@ -677,10 +708,12 @@ export default function VideoPlayer({
         transform: hoveredButton === "expand" ? "scale(1.04)" : "scale(1)",
     }), [baseButtonStyle, hoveredButton])
 
-    // Resolve the actual video source — file upload takes priority over URL
-    const effectiveSrc = (sourceType === "upload" ? videoFile : videoUrl) || undefined
+    // Resolve the actual video source — file upload takes priority over URL.
+    // Filter out unsafe URL schemes (javascript:, vbscript:, file:) before <video src>.
+    const rawSrc = (sourceType === "upload" ? videoFile : videoUrl) || undefined
+    const effectiveSrc = isSafeMediaUrl(rawSrc) ? rawSrc : undefined
 
-    const showThumbnail = thumbnailUrl !== "" && !hasEverPlayed
+    const showThumbnail = !!thumbnail?.src && !hasEverPlayed
     const hasSource = !!effectiveSrc
 
     const borderColor = `rgba(255,255,255,${borderOpacity})`
@@ -764,16 +797,23 @@ export default function VideoPlayer({
                     onError={() => setLoadError(true)}
                 />
 
-                {showThumbnail && (
-                    <div style={{
-                        position: "absolute", inset: 0,
-                        backgroundImage: `url("${thumbnailUrl.replace(/"/g, "%22")}")`,
-                        backgroundSize: "cover",
-                        backgroundPosition: "center",
-                    }} />
+                {showThumbnail && thumbnail && (
+                    <img
+                        src={thumbnail.src}
+                        srcSet={thumbnail.srcSet}
+                        alt={thumbnail.alt ?? ""}
+                        style={{
+                            position: "absolute",
+                            inset: 0,
+                            width: "100%",
+                            height: "100%",
+                            objectFit: "cover",
+                            pointerEvents: "none",
+                        }}
+                    />
                 )}
 
-                {!hasSource && !thumbnailUrl && (
+                {!hasSource && !thumbnail?.src && (
                     <div style={{
                         position: "absolute", inset: 0,
                         display: "flex", alignItems: "center", justifyContent: "center",
@@ -799,6 +839,7 @@ export default function VideoPlayer({
 
                 {/* Controls row overlays the video, so outer padding stays even on all sides. */}
                 <div
+                    aria-hidden={!controlsAreVisible}
                     style={{
                         position: "absolute",
                         left: padding,
@@ -808,7 +849,12 @@ export default function VideoPlayer({
                         alignItems: "center",
                         gap: 8,
                         opacity: barAlpha,
-                        transition: "opacity 0.3s",
+                        // visibility removes the row from tab order + a11y tree;
+                        // delay the flip until the fade-out finishes
+                        visibility: controlsAreVisible ? "visible" : "hidden",
+                        transition: controlsAreVisible
+                            ? "opacity 0.3s, visibility 0s linear 0s"
+                            : "opacity 0.3s, visibility 0s linear 0.3s",
                         zIndex: 2,
                         pointerEvents: controlsAreVisible ? "auto" : "none",
                     }}
@@ -978,8 +1024,8 @@ addPropertyControls(VideoPlayer, {
         allowedFileTypes: ["mp4", "webm", "mov", "m4v", "ogv"],
         hidden: (props: Props) => props.sourceType !== "upload",
     },
-    thumbnailUrl: {
-        type: ControlType.Image,
+    thumbnail: {
+        type: ControlType.ResponsiveImage,
         title: "Thumbnail",
         description: "Shown before the video first plays.",
     },
