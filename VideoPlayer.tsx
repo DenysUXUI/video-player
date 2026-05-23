@@ -36,6 +36,7 @@ export interface Props {
     videoUrl: string
     videoFile: string
     thumbnail?: ThumbnailImage
+    aspectRatio: "16:9" | "9:16" | "1:1" | "4:5"
     loop: boolean
     mutedByDefault: boolean
     objectFit: "cover" | "contain"
@@ -148,7 +149,17 @@ const controlIconInnerStyle: CSSProperties = {
     height: 18,
 }
 
-const VIDEO_ASPECT = 16 / 9
+// Convert designer-facing aspect ratio enum into numeric width/height
+function parseAspectRatio(ratio: "16:9" | "9:16" | "1:1" | "4:5"): number {
+    switch (ratio) {
+        case "9:16": return 9 / 16
+        case "1:1": return 1
+        case "4:5": return 4 / 5
+        case "16:9":
+        default: return 16 / 9
+    }
+}
+
 const DEFAULT_CONTROL_BUTTON_SIZE = 38
 const DEFAULT_CONTROL_BUTTON_RADIUS = 12
 const DEFAULT_CONTROL_BUTTON_BLUR = 14
@@ -202,7 +213,7 @@ function prefersReducedMotion(): boolean {
     return window.matchMedia("(prefers-reduced-motion: reduce)").matches
 }
 
-function getTheaterStyle(framePadding: number, transition = "none"): CSSProperties {
+function getTheaterStyle(framePadding: number, aspect: number, transition = "none"): CSSProperties {
     if (typeof window === "undefined") return {}
     const viewportWidth = window.innerWidth
     const viewportHeight = window.innerHeight
@@ -211,8 +222,8 @@ function getTheaterStyle(framePadding: number, transition = "none"): CSSProperti
     const maxHeight = Math.max(0, viewportHeight - margin * 2)
     const maxVideoWidth = Math.max(0, maxWidth - framePadding * 2)
     const maxVideoHeight = Math.max(0, maxHeight - framePadding * 2)
-    const videoWidth = Math.min(maxVideoWidth, maxVideoHeight * VIDEO_ASPECT)
-    const videoHeight = videoWidth / VIDEO_ASPECT
+    const videoWidth = Math.min(maxVideoWidth, maxVideoHeight * aspect)
+    const videoHeight = videoWidth / aspect
     const width = videoWidth + framePadding * 2
     const height = videoHeight + framePadding * 2
 
@@ -232,8 +243,9 @@ function getTheaterStyle(framePadding: number, transition = "none"): CSSProperti
 }
 
 // Reusable icon control for controls row
-function ControlBtn({ ariaLabel, onClick, onMouseEnter, onMouseLeave, onMouseDown, onMouseUp, buttonStyle, children }: {
+function ControlBtn({ ariaLabel, ariaPressed, onClick, onMouseEnter, onMouseLeave, onMouseDown, onMouseUp, buttonStyle, children }: {
     ariaLabel: string
+    ariaPressed?: boolean
     onClick: (e: ReactMouseEvent<HTMLButtonElement>) => void
     onMouseEnter: () => void
     onMouseLeave: () => void
@@ -250,6 +262,7 @@ function ControlBtn({ ariaLabel, onClick, onMouseEnter, onMouseLeave, onMouseDow
         <button
             type="button"
             aria-label={ariaLabel}
+            aria-pressed={ariaPressed}
             onClick={onClick}
             onMouseEnter={onMouseEnter}
             onMouseLeave={onMouseLeave}
@@ -282,11 +295,13 @@ function useTheaterMode({
     rootRef,
     videoRef,
     padding,
+    aspect,
     onActivate,
 }: {
     rootRef: RefObject<HTMLDivElement>
     videoRef: RefObject<HTMLVideoElement>
     padding: number
+    aspect: number
     onActivate: () => void
 }) {
     const expandTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -328,13 +343,49 @@ function useTheaterMode({
         }, THEATER_CLOSE_MS + 30)
     }, [rootRef])
 
-    // Escape key closes theater mode
+    // Theater mode keyboard handling: Escape closes; Tab/Shift+Tab cycle focus
+    // within the component so the user cannot tab-escape into the page behind.
     useEffect(() => {
         if (!isExpanded) return
-        const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeExpand() }
+
+        const focusableSelector = 'button, [tabindex]:not([tabindex="-1"])'
+        const getFocusable = (): HTMLElement[] => {
+            const root = rootRef.current
+            if (!root) return []
+            return Array.from(root.querySelectorAll<HTMLElement>(focusableSelector))
+        }
+
+        // Move focus into the player when theater opens (if it isn't already inside)
+        const initial = getFocusable()
+        if (
+            initial.length > 0 &&
+            !rootRef.current?.contains(document.activeElement)
+        ) {
+            initial[0].focus()
+        }
+
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                closeExpand()
+                return
+            }
+            if (e.key !== "Tab") return
+            const elements = getFocusable()
+            if (elements.length === 0) return
+            const first = elements[0]
+            const last = elements[elements.length - 1]
+            const active = document.activeElement as HTMLElement | null
+            if (e.shiftKey && active === first) {
+                e.preventDefault()
+                last.focus()
+            } else if (!e.shiftKey && active === last) {
+                e.preventDefault()
+                first.focus()
+            }
+        }
         window.addEventListener("keydown", onKey)
         return () => window.removeEventListener("keydown", onKey)
-    }, [isExpanded, closeExpand])
+    }, [isExpanded, closeExpand, rootRef])
 
     // Re-fit theater frame to viewport on resize (rAF-throttled)
     useEffect(() => {
@@ -345,7 +396,7 @@ function useTheaterMode({
             if (rafId !== null) return
             rafId = requestAnimationFrame(() => {
                 rafId = null
-                setTheaterStyle(getTheaterStyle(padding))
+                setTheaterStyle(getTheaterStyle(padding, aspect))
             })
         }
         window.addEventListener("resize", onResize)
@@ -353,7 +404,7 @@ function useTheaterMode({
             if (rafId !== null) cancelAnimationFrame(rafId)
             window.removeEventListener("resize", onResize)
         }
-    }, [isExpanded, padding])
+    }, [isExpanded, padding, aspect])
 
     const openNativeFullscreen = useCallback(() => {
         const video = videoRef.current as NativeFullscreenVideo | null
@@ -411,18 +462,19 @@ function useTheaterMode({
                     requestAnimationFrame(() => {
                         setTheaterStyle(getTheaterStyle(
                             padding,
+                            aspect,
                             `top ${THEATER_OPEN_MS}ms ${THEATER_OPEN_EASE}, left ${THEATER_OPEN_MS}ms ${THEATER_OPEN_EASE}, width ${THEATER_OPEN_MS}ms ${THEATER_OPEN_EASE}, height ${THEATER_OPEN_MS}ms ${THEATER_OPEN_EASE}`
                         ))
                     })
                 })
             } else {
-                setTheaterStyle(getTheaterStyle(padding))
+                setTheaterStyle(getTheaterStyle(padding, aspect))
             }
             setIsExpanded(true)
         } else {
             closeExpand()
         }
-    }, [isExpanded, padding, rootRef, onActivate, openNativeFullscreen, closeExpand])
+    }, [isExpanded, padding, aspect, rootRef, onActivate, openNativeFullscreen, closeExpand])
 
     return { isExpanded, theaterStyle, toggleExpand }
 }
@@ -438,6 +490,7 @@ export default function VideoPlayer({
     videoUrl = "",
     videoFile = "",
     thumbnail,
+    aspectRatio = "16:9",
     loop = true,
     mutedByDefault = true,
     objectFit = "cover",
@@ -454,7 +507,7 @@ export default function VideoPlayer({
     controlButtonBorderColor = "rgba(255, 255, 255, 0.16)",
     controlButtonBorderWidth = 1,
     controlButtonBlur = DEFAULT_CONTROL_BUTTON_BLUR,
-    progressColor = "#000000",
+    progressColor = "#FFFFFF",
     style,
 }: Props) {
     const videoRef = useRef<HTMLVideoElement>(null)
@@ -462,6 +515,8 @@ export default function VideoPlayer({
     const progressRef = useRef<HTMLDivElement>(null)
     const isScrubbingRef = useRef(false)
     const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const mouseMoveRafRef = useRef<number | null>(null)
+    const scrubRectRef = useRef<DOMRect | null>(null)
 
     const [isPlaying, setIsPlaying] = useState(false)
     const [isMuted, setIsMuted] = useState(mutedByDefault)
@@ -490,16 +545,20 @@ export default function VideoPlayer({
         setControlsVisible(true)
         if (hideTimer.current) clearTimeout(hideTimer.current)
     }, [])
+    const aspect = parseAspectRatio(aspectRatio)
     const { isExpanded, theaterStyle, toggleExpand } = useTheaterMode({
         rootRef,
         videoRef,
         padding,
+        aspect,
         onActivate: handleTheaterActivate,
     })
 
-    // Clear the auto-hide timer on unmount (theater-mode timers are cleaned in the hook)
+    // Clear the auto-hide timer + any pending mouse-move rAF on unmount
+    // (theater-mode timers are cleaned in the hook)
     useEffect(() => () => {
         if (hideTimer.current) clearTimeout(hideTimer.current)
+        if (mouseMoveRafRef.current !== null) cancelAnimationFrame(mouseMoveRafRef.current)
     }, [])
 
     useEffect(() => {
@@ -507,6 +566,12 @@ export default function VideoPlayer({
         if (hideTimer.current) clearTimeout(hideTimer.current)
         setControlsVisible(true)
     }, [autoHideControls])
+
+    // Keep mute state in sync when the designer toggles the prop in Framer panel
+    useEffect(() => {
+        setIsMuted(mutedByDefault)
+        if (videoRef.current) videoRef.current.muted = mutedByDefault
+    }, [mutedByDefault])
 
     // Autoplay on mount / when source changes
     useEffect(() => {
@@ -563,7 +628,9 @@ export default function VideoPlayer({
     const getProgressRatioFromClientX = (clientX: number) => {
         const track = progressRef.current
         if (!track || durationSeconds <= 0) return 0
-        const rect = track.getBoundingClientRect()
+        // Reuse the rect captured at pointerdown during an active scrub
+        // to avoid getBoundingClientRect on every pointermove (layout cost).
+        const rect = scrubRectRef.current ?? track.getBoundingClientRect()
         if (rect.width <= 0) return 0
         return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
     }
@@ -594,6 +661,8 @@ export default function VideoPlayer({
         if (durationSeconds <= 0) return
         if (hideTimer.current) clearTimeout(hideTimer.current)
         e.currentTarget.setPointerCapture?.(e.pointerId)
+        // Cache the track rect for the lifetime of this scrub gesture
+        scrubRectRef.current = e.currentTarget.getBoundingClientRect()
         const ratio = getProgressRatioFromClientX(e.clientX)
         isScrubbingRef.current = true
         setIsScrubbing(true)
@@ -617,6 +686,7 @@ export default function VideoPlayer({
         if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
             e.currentTarget.releasePointerCapture(e.pointerId)
         }
+        scrubRectRef.current = null
         isScrubbingRef.current = false
         setIsScrubbing(false)
         if (isPlaying) scheduleHide()
@@ -647,7 +717,13 @@ export default function VideoPlayer({
     }
 
     const handleMouseMove = () => {
-        if (isPlaying) scheduleHide()
+        if (!isPlaying) return
+        // rAF-throttle: at most one scheduleHide() per frame, regardless of mouse-move frequency
+        if (mouseMoveRafRef.current !== null) return
+        mouseMoveRafRef.current = requestAnimationFrame(() => {
+            mouseMoveRafRef.current = null
+            scheduleHide()
+        })
     }
 
     // Memoized button styles — keep object identity stable across renders
@@ -762,7 +838,7 @@ export default function VideoPlayer({
             <div
                 style={{
                     flex: "1 1 auto",
-                    aspectRatio: "16/9",
+                    aspectRatio: aspectRatio.replace(":", "/"),
                     minHeight: 0,
                     borderRadius: innerRadius,
                     overflow: "hidden",
@@ -794,6 +870,14 @@ export default function VideoPlayer({
                     onTimeUpdate={() => {
                         if (videoRef.current) setCurrentTime(videoRef.current.currentTime)
                     }}
+                    // Keep React state synced with the <video> element so play/pause
+                    // toggled from native iOS fullscreen controls or browser UI is reflected here.
+                    onPlay={() => {
+                        setIsPlaying(true)
+                        setHasEverPlayed(true)
+                    }}
+                    onPause={() => setIsPlaying(false)}
+                    onEnded={() => setIsPlaying(false)}
                     onError={() => setLoadError(true)}
                 />
 
@@ -820,7 +904,9 @@ export default function VideoPlayer({
                         background: "rgba(0,0,0,0.18)",
                     }}>
                         <span style={{ color: "rgba(255,255,255,0.85)", fontSize: 13, fontFamily: "sans-serif" }}>
-                            Add a video URL in properties
+                            {sourceType === "upload"
+                                ? "Upload a video file in properties"
+                                : "Add a video URL in properties"}
                         </span>
                     </div>
                 )}
@@ -862,6 +948,7 @@ export default function VideoPlayer({
                     {/* Play / Pause */}
                     <ControlBtn
                         ariaLabel={isPlaying ? "Pause" : "Play"}
+                        ariaPressed={isPlaying}
                         onClick={(e) => { e.stopPropagation(); togglePlay() }}
                         onMouseEnter={() => setHoveredButton("play")}
                         onMouseLeave={() => { setHoveredButton(null); setPlayActive(false) }}
@@ -979,6 +1066,7 @@ export default function VideoPlayer({
                     {/* Mute */}
                     <ControlBtn
                         ariaLabel={isMuted ? "Unmute" : "Mute"}
+                        ariaPressed={isMuted}
                         onClick={toggleMute}
                         onMouseEnter={() => setHoveredButton("mute")}
                         onMouseLeave={() => setHoveredButton(null)}
@@ -990,6 +1078,7 @@ export default function VideoPlayer({
                     {/* Expand / Collapse */}
                     <ControlBtn
                         ariaLabel={isExpanded ? "Exit theater mode" : "Theater mode"}
+                        ariaPressed={isExpanded}
                         onClick={toggleExpand}
                         onMouseEnter={() => setHoveredButton("expand")}
                         onMouseLeave={() => setHoveredButton(null)}
@@ -1003,7 +1092,14 @@ export default function VideoPlayer({
     )
 }
 
+// Property controls are grouped logically in the panel by listing order:
+// 1) Source — what video is shown
+// 2) Frame size — aspect + fit
+// 3) Playback — behavior toggles
+// 4) Frame look — glass-frame styling
+// 5) Controls — button + progress styling
 addPropertyControls(VideoPlayer, {
+    // —— Source ——
     sourceType: {
         type: ControlType.Enum,
         title: "Source",
@@ -1029,6 +1125,16 @@ addPropertyControls(VideoPlayer, {
         title: "Thumbnail",
         description: "Shown before the video first plays.",
     },
+    // —— Frame size ——
+    aspectRatio: {
+        type: ControlType.Enum,
+        title: "Aspect",
+        options: ["16:9", "9:16", "1:1", "4:5"],
+        optionTitles: ["16:9", "9:16", "1:1", "4:5"],
+        defaultValue: "16:9",
+        displaySegmentedControl: true,
+        description: "Video frame ratio. Use 9:16 for vertical, 1:1 for square.",
+    },
     objectFit: {
         type: ControlType.Enum,
         title: "Fit",
@@ -1038,6 +1144,7 @@ addPropertyControls(VideoPlayer, {
         displaySegmentedControl: true,
         description: "How the video fills its frame. Theater mode always uses Contain.",
     },
+    // —— Playback ——
     loop: {
         type: ControlType.Boolean,
         title: "Loop",
@@ -1068,6 +1175,7 @@ addPropertyControls(VideoPlayer, {
         disabledTitle: "Off",
         description: "Hide controls after 2.2s of inactivity while playing.",
     },
+    // —— Frame look ——
     padding: {
         type: ControlType.Number,
         title: "Padding",
@@ -1076,6 +1184,7 @@ addPropertyControls(VideoPlayer, {
         step: 1,
         defaultValue: 8,
         unit: "px",
+        description: "Inner space of the glass frame around the video.",
     },
     borderRadius: {
         type: ControlType.Number,
@@ -1099,6 +1208,7 @@ addPropertyControls(VideoPlayer, {
         type: ControlType.Color,
         title: "BG Color",
         defaultValue: "rgba(255, 255, 255, 0.12)",
+        description: "Tint behind the glass frame. Lower alpha = more transparent.",
     },
     blurAmount: {
         type: ControlType.Number,
@@ -1110,6 +1220,7 @@ addPropertyControls(VideoPlayer, {
         unit: "px",
         description: "Backdrop blur for the glass frame.",
     },
+    // —— Controls ——
     controlButtonSize: {
         type: ControlType.Number,
         title: "Button Size",
@@ -1118,6 +1229,7 @@ addPropertyControls(VideoPlayer, {
         step: 1,
         defaultValue: DEFAULT_CONTROL_BUTTON_SIZE,
         unit: "px",
+        description: "Size of the play, mute, and theater buttons.",
     },
     controlButtonRadius: {
         type: ControlType.Number,
@@ -1127,16 +1239,19 @@ addPropertyControls(VideoPlayer, {
         step: 1,
         defaultValue: DEFAULT_CONTROL_BUTTON_RADIUS,
         unit: "px",
+        description: "Corner radius for control buttons.",
     },
     controlButtonColor: {
         type: ControlType.Color,
         title: "Button Color",
         defaultValue: "rgba(255, 255, 255, 0.1)",
+        description: "Background fill of each control button.",
     },
     controlButtonBorderColor: {
         type: ControlType.Color,
         title: "Stroke Color",
         defaultValue: "rgba(255, 255, 255, 0.16)",
+        description: "Border color around each control button.",
     },
     controlButtonBorderWidth: {
         type: ControlType.Number,
@@ -1146,6 +1261,7 @@ addPropertyControls(VideoPlayer, {
         step: 0.5,
         defaultValue: 1,
         unit: "px",
+        description: "Border thickness around each control button.",
     },
     controlButtonBlur: {
         type: ControlType.Number,
@@ -1160,6 +1276,7 @@ addPropertyControls(VideoPlayer, {
     progressColor: {
         type: ControlType.Color,
         title: "Progress Color",
-        defaultValue: "#000000",
+        defaultValue: "#FFFFFF",
+        description: "Color of the played portion of the progress bar.",
     },
 })
