@@ -1,5 +1,5 @@
 /**
- * VideoPlayer — Framer code component
+ * FrostedPlayer — Framer code component
  *
  * Glassmorphism video player with URL/upload sources, native mobile fullscreen,
  * animated theater mode, keyboard-accessible custom controls, and full
@@ -485,7 +485,7 @@ function useTheaterMode({
  * @framerIntrinsicWidth 640
  * @framerIntrinsicHeight 360
  */
-export default function VideoPlayer({
+export default function FrostedPlayer({
     sourceType = "url",
     videoUrl = "",
     videoFile = "",
@@ -1098,7 +1098,7 @@ export default function VideoPlayer({
 // 3) Playback — behavior toggles
 // 4) Frame look — glass-frame styling
 // 5) Controls — button + progress styling
-addPropertyControls(VideoPlayer, {
+addPropertyControls(FrostedPlayer, {
     // —— Source ——
     sourceType: {
         type: ControlType.Enum,
