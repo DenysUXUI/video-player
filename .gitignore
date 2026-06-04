@@ -10,3 +10,6 @@
 
 # Logs
 *.log
+
+# Marketplace preview assets (uploaded directly to Framer Creator Dashboard, not the repo)
+media/
