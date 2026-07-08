@@ -213,6 +213,19 @@ function prefersReducedMotion(): boolean {
     return window.matchMedia("(prefers-reduced-motion: reduce)").matches
 }
 
+// True when the element received focus via keyboard (:focus-visible),
+// false for mouse/touch focus. Falls back to true in browsers without
+// :focus-visible so keyboard users are never the ones penalized.
+function isKeyboardFocus(target: EventTarget | null): boolean {
+    const el = target as HTMLElement | null
+    if (!el || typeof el.matches !== "function") return false
+    try {
+        return el.matches(":focus-visible")
+    } catch {
+        return true
+    }
+}
+
 function getTheaterStyle(framePadding: number, aspect: number, transition = "none"): CSSProperties {
     if (typeof window === "undefined") return {}
     const viewportWidth = window.innerWidth
@@ -515,6 +528,9 @@ export default function TheaterVideoPlayer({
     const progressRef = useRef<HTMLDivElement>(null)
     const isScrubbingRef = useRef(false)
     const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // Keyboard focus parked on a control blocks auto-hide entirely —
+    // hiding the controls would silently throw the user's focus away (WCAG).
+    const focusWithinControlsRef = useRef(false)
     const mouseMoveRafRef = useRef<number | null>(null)
     const scrubRectRef = useRef<DOMRect | null>(null)
 
@@ -537,7 +553,10 @@ export default function TheaterVideoPlayer({
         if (hideTimer.current) clearTimeout(hideTimer.current)
         setControlsVisible(true)
         if (!autoHideControls) return
-        hideTimer.current = setTimeout(() => setControlsVisible(false), 2200)
+        hideTimer.current = setTimeout(() => {
+            if (focusWithinControlsRef.current) return
+            setControlsVisible(false)
+        }, 2200)
     }
 
     // Controls must come back on their own whenever playback stops —
@@ -722,6 +741,15 @@ export default function TheaterVideoPlayer({
         seekToRatio(ratio)
         setHoverTime(ratio * durationSeconds)
         setHoverPercent(ratio)
+        // stopPropagation above keeps this from reaching the root key handler,
+        // so reset the auto-hide timer here as well
+        if (isPlaying) scheduleHide()
+    }
+
+    // Keyboard activity counts as activity just like mouse movement does
+    const handleRootKeyDown = () => {
+        if (!isPlaying) return
+        scheduleHide()
     }
 
     const handleMouseMove = () => {
@@ -839,6 +867,7 @@ export default function TheaterVideoPlayer({
                 padding,
             }}
             onMouseMove={handleMouseMove}
+            onKeyDown={handleRootKeyDown}
         >
             {/* Inner video frame.
                 aspectRatio gives it a natural height in Framer "Fit" mode.
@@ -935,6 +964,16 @@ export default function TheaterVideoPlayer({
                 {/* Controls row overlays the video, so outer padding stays even on all sides. */}
                 <div
                     aria-hidden={!controlsAreVisible}
+                    onFocus={(e) => {
+                        if (!isKeyboardFocus(e.target)) return
+                        focusWithinControlsRef.current = true
+                        revealControls()
+                    }}
+                    onBlur={(e) => {
+                        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+                        focusWithinControlsRef.current = false
+                        if (isPlaying) scheduleHide()
+                    }}
                     style={{
                         position: "absolute",
                         left: padding,
