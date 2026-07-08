@@ -540,6 +540,15 @@ export default function TheaterVideoPlayer({
         hideTimer.current = setTimeout(() => setControlsVisible(false), 2200)
     }
 
+    // Controls must come back on their own whenever playback stops —
+    // handleMouseMove ignores movement while not playing, so a pause or end
+    // that happens outside our UI (media keys, native fullscreen controls)
+    // would otherwise leave them hidden with no way to bring them back.
+    const revealControls = () => {
+        if (hideTimer.current) clearTimeout(hideTimer.current)
+        setControlsVisible(true)
+    }
+
     // Theater mode lives in its own hook (open/close, escape, resize, native FS)
     const handleTheaterActivate = useCallback(() => {
         setControlsVisible(true)
@@ -602,8 +611,7 @@ export default function TheaterVideoPlayer({
         if (isPlaying) {
             v.pause()
             setIsPlaying(false)
-            setControlsVisible(true)
-            if (hideTimer.current) clearTimeout(hideTimer.current)
+            revealControls()
         } else {
             // Optimistic UI; roll back if the browser rejects play()
             // (iOS Safari rejects when there is no user gesture context)
@@ -875,9 +883,10 @@ export default function TheaterVideoPlayer({
                     onPlay={() => {
                         setIsPlaying(true)
                         setHasEverPlayed(true)
+                        scheduleHide()
                     }}
-                    onPause={() => setIsPlaying(false)}
-                    onEnded={() => setIsPlaying(false)}
+                    onPause={() => { setIsPlaying(false); revealControls() }}
+                    onEnded={() => { setIsPlaying(false); revealControls() }}
                     onError={() => setLoadError(true)}
                 />
 
