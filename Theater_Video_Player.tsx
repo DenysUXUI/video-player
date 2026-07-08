@@ -181,7 +181,7 @@ type NativeFullscreenVideo = HTMLVideoElement & {
     webkitDisplayingFullscreen?: boolean
 }
 
-function rectToFixedStyle(rect: DOMRect, transition = "none"): CSSProperties {
+function rectToFixedStyle(rect: Pick<DOMRect, "top" | "left" | "width" | "height">, transition = "none"): CSSProperties {
     return {
         position: "fixed",
         top: rect.top,
@@ -319,6 +319,9 @@ function useTheaterMode({
 }) {
     const expandTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
     const smallRect = useRef<DOMRect | null>(null)
+    // Page scroll position at open time — the page behind the theater can
+    // still scroll, so the close animation must shift its target by the delta.
+    const smallScroll = useRef<{ x: number; y: number } | null>(null)
     const nativeFsCleanup = useRef<(() => void) | null>(null)
     const [isExpanded, setIsExpanded] = useState(false)
     const [theaterStyle, setTheaterStyle] = useState<CSSProperties | null>(null)
@@ -339,11 +342,22 @@ function useTheaterMode({
             return
         }
 
+        // The player's real spot moved in the viewport if the page scrolled
+        // while the theater was open — land on the shifted position, not the
+        // stale one, so the frame doesn't jump after the animation ends.
+        const openScroll = smallScroll.current
+        const target = {
+            top: small.top + (openScroll ? openScroll.y - window.scrollY : 0),
+            left: small.left + (openScroll ? openScroll.x - window.scrollX : 0),
+            width: small.width,
+            height: small.height,
+        }
+
         setTheaterStyle(rectToFixedStyle(current))
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
                 setTheaterStyle(rectToFixedStyle(
-                    small,
+                    target,
                     `top ${THEATER_CLOSE_MS}ms ${THEATER_CLOSE_EASE}, left ${THEATER_CLOSE_MS}ms ${THEATER_CLOSE_EASE}, width ${THEATER_CLOSE_MS}ms ${THEATER_CLOSE_EASE}, height ${THEATER_CLOSE_MS}ms ${THEATER_CLOSE_EASE}`
                 ))
             })
@@ -467,6 +481,7 @@ function useTheaterMode({
 
             const rect = rootRef.current?.getBoundingClientRect() ?? null
             smallRect.current = rect
+            smallScroll.current = { x: window.scrollX, y: window.scrollY }
             if (expandTimer.current) clearTimeout(expandTimer.current)
 
             if (rect && !prefersReducedMotion()) {
