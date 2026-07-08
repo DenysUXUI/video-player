@@ -10,7 +10,7 @@
  * License: MIT
  */
 
-import { addPropertyControls, ControlType } from "framer"
+import { addPropertyControls, ControlType, RenderTarget } from "framer"
 import {
     useState,
     useRef,
@@ -59,8 +59,10 @@ export interface Props {
 
 function formatTime(secs: number): string {
     if (!isFinite(secs) || secs < 0) return "--:--"
-    const m = Math.floor(secs / 60)
+    const h = Math.floor(secs / 3600)
+    const m = Math.floor((secs % 3600) / 60)
     const s = Math.floor(secs % 60)
+    if (h > 0) return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`
     return `${m}:${s.toString().padStart(2, "0")}`
 }
 
@@ -205,14 +207,20 @@ function rectToFixedStyle(rect: Pick<DOMRect, "top" | "left" | "width" | "height
 }
 
 function getTheaterMargin(viewportWidth: number) {
-    if (viewportWidth <= 767) return THEATER_MOBILE_MARGIN
+    if (viewportWidth <= MOBILE_NATIVE_FULLSCREEN_MAX_WIDTH) return THEATER_MOBILE_MARGIN
     if (viewportWidth <= 1199) return THEATER_TABLET_MARGIN
     return THEATER_DESKTOP_MARGIN
 }
 
+// "Mobile" needs a touch signal, not just a narrow window — otherwise a
+// squeezed desktop window would get native fullscreen instead of the
+// animated theater transition.
 function shouldUseNativeMobileFullscreen() {
     if (typeof window === "undefined") return false
-    return window.innerWidth <= MOBILE_NATIVE_FULLSCREEN_MAX_WIDTH
+    if (window.innerWidth > MOBILE_NATIVE_FULLSCREEN_MAX_WIDTH) return false
+    const coarsePointer = window.matchMedia?.("(pointer: coarse)").matches ?? false
+    const hasTouch = "ontouchstart" in window || navigator.maxTouchPoints > 0
+    return coarsePointer || hasTouch
 }
 
 function prefersReducedMotion(): boolean {
@@ -263,9 +271,8 @@ function getTheaterStyle(framePadding: number, aspect: number, transition = "non
 }
 
 // Reusable icon control for controls row
-function ControlBtn({ ariaLabel, ariaPressed, onClick, onMouseEnter, onMouseLeave, onMouseDown, onMouseUp, buttonStyle, children }: {
+function ControlBtn({ ariaLabel, onClick, onMouseEnter, onMouseLeave, onMouseDown, onMouseUp, buttonStyle, children }: {
     ariaLabel: string
-    ariaPressed?: boolean
     onClick: (e: ReactMouseEvent<HTMLButtonElement>) => void
     onMouseEnter: () => void
     onMouseLeave: () => void
@@ -282,13 +289,12 @@ function ControlBtn({ ariaLabel, ariaPressed, onClick, onMouseEnter, onMouseLeav
         <button
             type="button"
             aria-label={ariaLabel}
-            aria-pressed={ariaPressed}
             onClick={onClick}
             onMouseEnter={onMouseEnter}
             onMouseLeave={onMouseLeave}
             onMouseDown={onMouseDown}
             onMouseUp={onMouseUp}
-            onFocus={() => setFocused(true)}
+            onFocus={(e) => setFocused(isKeyboardFocus(e.target))}
             onBlur={() => setFocused(false)}
             style={{ ...buttonStyle, ...focusedStyle }}
         >
@@ -627,9 +633,11 @@ export default function TheaterVideoPlayer({
         if (videoRef.current) videoRef.current.muted = mutedByDefault
     }, [mutedByDefault])
 
-    // Autoplay on mount / when source changes
+    // Autoplay on mount / when source changes.
+    // Skipped on the Framer canvas so the editor doesn't play videos while designing.
     useEffect(() => {
         if (!autoplay) return
+        if (RenderTarget.current() === RenderTarget.canvas) return
         const src = (sourceType === "upload" ? videoFile : videoUrl) || undefined
         if (!src) return
         videoRef.current?.play().then(() => {
@@ -637,7 +645,7 @@ export default function TheaterVideoPlayer({
             setHasEverPlayed(true)
             scheduleHide()
         }).catch(() => {})
-    }, [autoplay, sourceType, videoFile, videoUrl, autoHideControls])
+    }, [autoplay, sourceType, videoFile, videoUrl])
 
     // Reset playback + UI state when the source changes so a new video starts clean
     useEffect(() => {
@@ -1029,7 +1037,6 @@ export default function TheaterVideoPlayer({
                     {/* Play / Pause */}
                     <ControlBtn
                         ariaLabel={isPlaying ? "Pause" : "Play"}
-                        ariaPressed={isPlaying}
                         onClick={(e) => { e.stopPropagation(); togglePlay() }}
                         onMouseEnter={() => setHoveredButton("play")}
                         onMouseLeave={() => { setHoveredButton(null); setPlayActive(false) }}
@@ -1057,7 +1064,7 @@ export default function TheaterVideoPlayer({
                         onPointerLeave={handleProgressPointerLeave}
                         onKeyDown={handleProgressKeyDown}
                         onClick={(e) => e.stopPropagation()}
-                        onFocus={() => setProgressFocused(true)}
+                        onFocus={(e) => setProgressFocused(isKeyboardFocus(e.target))}
                         onBlur={() => {
                             setProgressFocused(false)
                             if (keyTooltipTimer.current) clearTimeout(keyTooltipTimer.current)
@@ -1151,7 +1158,6 @@ export default function TheaterVideoPlayer({
                     {/* Mute */}
                     <ControlBtn
                         ariaLabel={isMuted ? "Unmute" : "Mute"}
-                        ariaPressed={isMuted}
                         onClick={toggleMute}
                         onMouseEnter={() => setHoveredButton("mute")}
                         onMouseLeave={() => setHoveredButton(null)}
@@ -1163,7 +1169,6 @@ export default function TheaterVideoPlayer({
                     {/* Expand / Collapse */}
                     <ControlBtn
                         ariaLabel={isExpanded ? "Exit theater mode" : "Theater mode"}
-                        ariaPressed={isExpanded}
                         onClick={toggleExpand}
                         onMouseEnter={() => setHoveredButton("expand")}
                         onMouseLeave={() => setHoveredButton(null)}
