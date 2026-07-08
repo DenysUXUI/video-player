@@ -548,6 +548,9 @@ export default function TheaterVideoPlayer({
     const focusWithinControlsRef = useRef(false)
     const mouseMoveRafRef = useRef<number | null>(null)
     const scrubRectRef = useRef<DOMRect | null>(null)
+    // The time tooltip opened by keyboard seeking has no mouse-leave to close
+    // it, so it dismisses itself after a short pause instead.
+    const keyTooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     const [isPlaying, setIsPlaying] = useState(false)
     const [isMuted, setIsMuted] = useState(mutedByDefault)
@@ -602,6 +605,7 @@ export default function TheaterVideoPlayer({
     useEffect(() => () => {
         if (hideTimer.current) clearTimeout(hideTimer.current)
         if (mouseMoveRafRef.current !== null) cancelAnimationFrame(mouseMoveRafRef.current)
+        if (keyTooltipTimer.current) clearTimeout(keyTooltipTimer.current)
     }, [])
 
     useEffect(() => {
@@ -756,6 +760,11 @@ export default function TheaterVideoPlayer({
         seekToRatio(ratio)
         setHoverTime(ratio * durationSeconds)
         setHoverPercent(ratio)
+        if (keyTooltipTimer.current) clearTimeout(keyTooltipTimer.current)
+        keyTooltipTimer.current = setTimeout(() => {
+            keyTooltipTimer.current = null
+            if (!isScrubbingRef.current) setHoverTime(null)
+        }, 1000)
         // stopPropagation above keeps this from reaching the root key handler,
         // so reset the auto-hide timer here as well
         if (isPlaying) scheduleHide()
@@ -1040,7 +1049,11 @@ export default function TheaterVideoPlayer({
                         onKeyDown={handleProgressKeyDown}
                         onClick={(e) => e.stopPropagation()}
                         onFocus={() => setProgressFocused(true)}
-                        onBlur={() => setProgressFocused(false)}
+                        onBlur={() => {
+                            setProgressFocused(false)
+                            if (keyTooltipTimer.current) clearTimeout(keyTooltipTimer.current)
+                            if (!isScrubbingRef.current) setHoverTime(null)
+                        }}
                         style={{
                             position: "relative",
                             flex: "1 1 auto",
