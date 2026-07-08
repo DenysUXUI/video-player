@@ -64,16 +64,23 @@ function formatTime(secs: number): string {
     return `${m}:${s.toString().padStart(2, "0")}`
 }
 
-// Block dangerous URL schemes before passing user input to <video src>.
-// Allows the normal cases (https, http, blob, data:video/*, framer uploads)
-// and rejects javascript:, vbscript:, and file: which have no business in a media player.
+// Only let through URL schemes a media element legitimately needs
+// (https, http, blob, data — covers CDNs, Framer uploads and relative paths).
+// A whitelist instead of a blacklist: the URL parser normalizes tricks like
+// tabs/newlines inside a scheme, so "java\tscript:" cannot slip past it.
+const SAFE_MEDIA_PROTOCOLS = new Set(["http:", "https:", "blob:", "data:"])
+
 function isSafeMediaUrl(url: string | undefined): boolean {
     if (!url) return false
-    const trimmed = url.trim().toLowerCase()
-    if (trimmed.startsWith("javascript:")) return false
-    if (trimmed.startsWith("vbscript:")) return false
-    if (trimmed.startsWith("file:")) return false
-    return true
+    const trimmed = url.trim()
+    if (!trimmed) return false
+    try {
+        // Relative URLs resolve against the page and inherit its protocol
+        const base = typeof window !== "undefined" ? window.location.href : "https://localhost/"
+        return SAFE_MEDIA_PROTOCOLS.has(new URL(trimmed, base).protocol)
+    } catch {
+        return false
+    }
 }
 
 function IconPlay() {
@@ -848,8 +855,10 @@ export default function TheaterVideoPlayer({
     // Filter out unsafe URL schemes (javascript:, vbscript:, file:) before <video src>.
     const rawSrc = (sourceType === "upload" ? videoFile : videoUrl) || undefined
     const effectiveSrc = isSafeMediaUrl(rawSrc) ? rawSrc : undefined
+    // Same scheme check for the thumbnail — it also renders user-provided input
+    const thumbnailSrc = thumbnail?.src && isSafeMediaUrl(thumbnail.src) ? thumbnail.src : undefined
 
-    const showThumbnail = !!thumbnail?.src && !hasEverPlayed
+    const showThumbnail = !!thumbnailSrc && !hasEverPlayed
     const hasSource = !!effectiveSrc
 
     const borderColor = `rgba(255,255,255,${borderOpacity})`
@@ -943,11 +952,11 @@ export default function TheaterVideoPlayer({
                     onError={() => setLoadError(true)}
                 />
 
-                {showThumbnail && thumbnail && (
+                {showThumbnail && thumbnailSrc && (
                     <img
-                        src={thumbnail.src}
-                        srcSet={thumbnail.srcSet}
-                        alt={thumbnail.alt ?? ""}
+                        src={thumbnailSrc}
+                        srcSet={thumbnail?.srcSet}
+                        alt={thumbnail?.alt ?? ""}
                         style={{
                             position: "absolute",
                             inset: 0,
@@ -959,7 +968,7 @@ export default function TheaterVideoPlayer({
                     />
                 )}
 
-                {!hasSource && !thumbnail?.src && (
+                {!hasSource && !thumbnailSrc && (
                     <div style={{
                         position: "absolute", inset: 0,
                         display: "flex", alignItems: "center", justifyContent: "center",
