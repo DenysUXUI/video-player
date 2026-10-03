@@ -15,6 +15,7 @@ import {
     useState,
     useRef,
     useEffect,
+    useLayoutEffect,
     useCallback,
     useMemo,
     type CSSProperties,
@@ -190,6 +191,16 @@ type NativeFullscreenVideo = HTMLVideoElement & {
     webkitDisplayingFullscreen?: boolean
 }
 
+// Popover API (Chrome 114+, Safari 17+, Firefox 125+) — older browsers skip
+// the top layer and keep the plain fixed frame.
+type PopoverElement = HTMLElement & {
+    showPopover?: () => void
+    hidePopover?: () => void
+}
+
+// useLayoutEffect warns during server rendering, and Framer pre-renders sites
+const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect
+
 function rectToFixedStyle(rect: Pick<DOMRect, "top" | "left" | "width" | "height">, transition = "none"): CSSProperties {
     return {
         position: "fixed",
@@ -199,6 +210,10 @@ function rectToFixedStyle(rect: Pick<DOMRect, "top" | "left" | "width" | "height
         bottom: "auto",
         width: rect.width,
         height: rect.height,
+        // The popover's default styles center it with auto margins and
+        // reset the text color — keep our geometry and the page's color
+        margin: 0,
+        color: "inherit",
         zIndex: 9999,
         transform: "none",
         willChange: "top, left, width, height",
@@ -263,6 +278,8 @@ function getTheaterStyle(framePadding: number, aspect: number, transition = "non
         bottom: "auto",
         width,
         height,
+        margin: 0,
+        color: "inherit",
         zIndex: 9999,
         transform: "none",
         willChange: "top, left, width, height",
@@ -344,6 +361,40 @@ function useTheaterMode({
         if (expandTimer.current) clearTimeout(expandTimer.current)
         if (nativeFsCleanup.current) nativeFsCleanup.current()
     }, [])
+
+    // While the frame is detached (open, plus both animations) it lives in the
+    // browser's top layer. Otherwise an ancestor with a transform, filter or
+    // will-change — Framer appear and scroll effects — turns "fixed to the
+    // screen" into "fixed to that ancestor": the theater shifts, clips and
+    // scrolls with the page. Same element, so the video keeps playing.
+    // A layout effect, so the switch lands in the same frame as the geometry.
+    const isDetached = theaterStyle !== null
+    useIsomorphicLayoutEffect(() => {
+        const root = rootRef.current as PopoverElement | null
+        if (!isDetached || !root || typeof root.showPopover !== "function") return
+        try {
+            root.setAttribute("popover", "manual")
+            root.showPopover()
+        } catch {
+            root.removeAttribute("popover")
+            return
+        }
+        return () => {
+            // Hiding a popover can send focus back to wherever it was when the
+            // popover opened — outside the player in Safari, where clicks
+            // don't focus buttons. Keep it where the user left it.
+            const focused = document.activeElement as HTMLElement | null
+            try {
+                root.hidePopover?.()
+            } catch {
+                // Already hidden (e.g. the element left the page)
+            }
+            root.removeAttribute("popover")
+            if (focused && focused !== document.activeElement && root.contains(focused)) {
+                focused.focus({ preventScroll: true })
+            }
+        }
+    }, [isDetached, rootRef])
 
     const closeExpand = useCallback(() => {
         if (expandTimer.current) clearTimeout(expandTimer.current)
