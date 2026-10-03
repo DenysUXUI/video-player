@@ -983,7 +983,7 @@ export default function TheaterVideoPlayer({
     const showProgressTooltip = hoverTime !== null && durationSeconds > 0
     const progressTooltipPercent = Math.min(98, Math.max(2, hoverPercent * 100))
 
-    return (
+    const frame = (
         <div
             ref={rootRef}
             style={{
@@ -1289,6 +1289,41 @@ export default function TheaterVideoPlayer({
                 </div>
             </div>
         </div>
+    )
+
+    // While the theater is open the frame is out of the page's flow. This
+    // invisible copy of its box holds the spot — without it a "Fit" height
+    // collapses and the content below jumps up, then back down on close.
+    const placeholder = theaterStyle && (
+        <div
+            aria-hidden="true"
+            style={{
+                display: "flex",
+                flexDirection: "column",
+                boxSizing: "border-box",
+                ...style,
+                border: "1px solid transparent",
+                overflow: "hidden",
+                padding,
+                visibility: "hidden",
+                pointerEvents: "none",
+            }}
+        >
+            <div
+                style={{
+                    flex: "1 1 auto",
+                    aspectRatio: aspectRatio.replace(":", "/"),
+                    minHeight: 0,
+                }}
+            />
+        </div>
+    )
+
+    return (
+        <>
+            {frame}
+            {placeholder}
+        </>
     )
 }
 
