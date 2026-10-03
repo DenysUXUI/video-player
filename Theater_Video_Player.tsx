@@ -564,8 +564,8 @@ export default function TheaterVideoPlayer({
     // The time tooltip opened by keyboard seeking has no mouse-leave to close
     // it, so it dismisses itself after a short pause instead.
     const keyTooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-    // Framer's check for static renders (canvas, export, thumbnails);
-    // the Marketplace review looks for this hook by name.
+    // Framer's check for static renders (canvas and export). The Marketplace
+    // review flags components that don't use this hook by name.
     const isStaticRenderer = useIsStaticRenderer()
 
     const [isPlaying, setIsPlaying] = useState(false)
@@ -637,11 +637,19 @@ export default function TheaterVideoPlayer({
     }, [mutedByDefault])
 
     // Autoplay on mount / when source changes.
-    // Live preview and published sites only — the canvas, image export and
-    // thumbnails are static renders, so a video must not start playing there.
+    // Never on the canvas, in image export or in project thumbnails — a video
+    // must not start playing there. Listing the excluded targets (like
+    // Framer's own Video component does) keeps autoplay working on the
+    // preview and the published site even if Framer adds new targets.
     useEffect(() => {
         if (!autoplay) return
-        if (isStaticRenderer || RenderTarget.current() !== RenderTarget.preview) return
+        const target = RenderTarget.current()
+        if (
+            isStaticRenderer ||
+            target === RenderTarget.canvas ||
+            target === RenderTarget.export ||
+            target === RenderTarget.thumbnail
+        ) return
         const src = (sourceType === "upload" ? videoFile : videoUrl) || undefined
         if (!src) return
         videoRef.current?.play().then(() => {
@@ -905,7 +913,7 @@ export default function TheaterVideoPlayer({
     const hasSource = !!effectiveSrc
 
     const borderColor = `rgba(255,255,255,${borderOpacity})`
-    // Static renders (export, thumbnails) always show the controls
+    // Static renders (canvas, export) always show the controls
     const controlsAreVisible = isStaticRenderer || !autoHideControls || controlsVisible
     const barAlpha = controlsAreVisible ? 1 : 0
     const innerRadius = Math.max(0, borderRadius - padding)
