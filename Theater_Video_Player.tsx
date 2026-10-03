@@ -336,12 +336,14 @@ function ControlBtn({ ariaLabel, onClick, onMouseEnter, onMouseLeave, onMouseDow
  */
 function useTheaterMode({
     rootRef,
+    placeholderRef,
     videoRef,
     padding,
     aspect,
     onActivate,
 }: {
     rootRef: RefObject<HTMLDivElement>
+    placeholderRef: RefObject<HTMLDivElement>
     videoRef: RefObject<HTMLVideoElement>
     padding: number
     aspect: number
@@ -399,22 +401,22 @@ function useTheaterMode({
     const closeExpand = useCallback(() => {
         if (expandTimer.current) clearTimeout(expandTimer.current)
         const current = rootRef.current?.getBoundingClientRect()
+        // Land on the placeholder: it holds the player's real spot, so it
+        // already reflects any scroll, resize or rotation since opening —
+        // the frame doesn't jump after the animation ends.
+        // Fallback: the rect from open time, shifted by the page scroll.
         const small = smallRect.current
-        if (!current || !small || prefersReducedMotion()) {
-            setIsExpanded(false)
-            setTheaterStyle(null)
-            return
-        }
-
-        // The player's real spot moved in the viewport if the page scrolled
-        // while the theater was open — land on the shifted position, not the
-        // stale one, so the frame doesn't jump after the animation ends.
         const openScroll = smallScroll.current
-        const target = {
+        const target = placeholderRef.current?.getBoundingClientRect() ?? (small && {
             top: small.top + (openScroll ? openScroll.y - window.scrollY : 0),
             left: small.left + (openScroll ? openScroll.x - window.scrollX : 0),
             width: small.width,
             height: small.height,
+        })
+        if (!current || !target || prefersReducedMotion()) {
+            setIsExpanded(false)
+            setTheaterStyle(null)
+            return
         }
 
         setTheaterStyle(rectToFixedStyle(current))
@@ -432,7 +434,7 @@ function useTheaterMode({
             setTheaterStyle(null)
             expandTimer.current = null
         }, THEATER_CLOSE_MS + 30)
-    }, [rootRef])
+    }, [rootRef, placeholderRef])
 
     // Theater mode keyboard handling: Escape closes; Tab/Shift+Tab cycle focus
     // within the component so the user cannot tab-escape into the page behind.
@@ -604,6 +606,7 @@ export default function TheaterVideoPlayer({
 }: Props) {
     const videoRef = useRef<HTMLVideoElement>(null)
     const rootRef = useRef<HTMLDivElement>(null)
+    const placeholderRef = useRef<HTMLDivElement>(null)
     const progressRef = useRef<HTMLDivElement>(null)
     const isScrubbingRef = useRef(false)
     const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -661,6 +664,7 @@ export default function TheaterVideoPlayer({
     const aspect = parseAspectRatio(aspectRatio)
     const { isExpanded, theaterStyle, toggleExpand } = useTheaterMode({
         rootRef,
+        placeholderRef,
         videoRef,
         padding,
         aspect,
@@ -1296,6 +1300,7 @@ export default function TheaterVideoPlayer({
     // collapses and the content below jumps up, then back down on close.
     const placeholder = theaterStyle && (
         <div
+            ref={placeholderRef}
             aria-hidden="true"
             style={{
                 display: "flex",
