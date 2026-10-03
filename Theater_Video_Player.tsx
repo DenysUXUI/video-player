@@ -647,7 +647,12 @@ export default function TheaterVideoPlayer({
         }).catch(() => {})
     }, [autoplay, sourceType, videoFile, videoUrl])
 
-    // Reset playback + UI state when the source changes so a new video starts clean
+    // Reset playback + UI state when the source changes so a new video starts clean,
+    // then read what the <video> element already knows. On a published site the
+    // page arrives as static HTML and the video starts loading before React
+    // attaches its handlers — metadata or an error reported in that window is
+    // never delivered, which left the progress bar stuck at --:--. This sync
+    // lives inside the reset effect so the reset can't wipe what it reads.
     useEffect(() => {
         setLoadError(false)
         setHasEverPlayed(false)
@@ -656,6 +661,18 @@ export default function TheaterVideoPlayer({
         setDurationSeconds(0)
         setHoverTime(null)
         setHoverPercent(0)
+
+        const v = videoRef.current
+        if (!v) return
+        if (v.error) setLoadError(true)
+        if (v.readyState >= HTMLMediaElement.HAVE_METADATA) {
+            setDurationSeconds(isFinite(v.duration) ? v.duration : 0)
+            setCurrentTime(v.currentTime)
+        }
+        if (!v.paused) {
+            setIsPlaying(true)
+            setHasEverPlayed(true)
+        }
     }, [sourceType, videoUrl, videoFile])
 
     const togglePlay = () => {
