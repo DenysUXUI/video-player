@@ -676,6 +676,9 @@ export default function TheaterVideoPlayer({
 
         const v = videoRef.current
         if (!v) return
+        // Removing the src attribute doesn't stop a <video> — the old file kept
+        // playing (with sound, if unmuted) behind the "Add a video URL" hint.
+        if (!v.getAttribute("src") && v.currentSrc) v.load()
         if (v.error) setLoadError(true)
         if (v.readyState >= HTMLMediaElement.HAVE_METADATA) {
             setDurationSeconds(isFinite(v.duration) ? v.duration : 0)
