@@ -705,7 +705,10 @@ export default function TheaterVideoPlayer({
             scheduleHide()
             const playPromise = v.play()
             if (playPromise && typeof playPromise.catch === "function") {
-                playPromise.catch(() => setIsPlaying(false))
+                playPromise.catch(() => {
+                    setIsPlaying(false)
+                    revealControls()
+                })
             }
         }
     }
@@ -995,7 +998,14 @@ export default function TheaterVideoPlayer({
                     onVolumeChange={() => {
                         if (videoRef.current) setIsMuted(videoRef.current.muted)
                     }}
-                    onError={() => setLoadError(true)}
+                    // Safari keeps the element "playing" after a failed load and
+                    // fires no pause event — reset here so the Play icon and the
+                    // controls come back (auto-hide would otherwise keep them hidden).
+                    onError={() => {
+                        setLoadError(true)
+                        setIsPlaying(false)
+                        revealControls()
+                    }}
                 />
 
                 {showThumbnail && thumbnailSrc && (
