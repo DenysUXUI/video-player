@@ -260,8 +260,11 @@ function getTheaterStyle(framePadding: number, aspect: number, transition = "non
     if (typeof window === "undefined") return {}
     const viewportWidth = window.innerWidth
     const viewportHeight = window.innerHeight
+    // Lay out inside clientWidth: innerWidth also counts a classic scrollbar
+    // (Windows), which pushed the theater off-center
+    const layoutWidth = document.documentElement.clientWidth || viewportWidth
     const margin = getTheaterMargin(viewportWidth)
-    const maxWidth = Math.max(0, viewportWidth - margin * 2)
+    const maxWidth = Math.max(0, layoutWidth - margin * 2)
     const maxHeight = Math.max(0, viewportHeight - margin * 2)
     const maxVideoWidth = Math.max(0, maxWidth - framePadding * 2)
     const maxVideoHeight = Math.max(0, maxHeight - framePadding * 2)
