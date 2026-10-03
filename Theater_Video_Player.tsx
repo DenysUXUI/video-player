@@ -211,9 +211,13 @@ function rectToFixedStyle(rect: Pick<DOMRect, "top" | "left" | "width" | "height
         width: rect.width,
         height: rect.height,
         // The popover's default styles center it with auto margins and
-        // reset the text color — keep our geometry and the page's color
+        // reset the text color — keep our geometry and the page's color.
+        // No max size either: page CSS aimed at [popover], or a max-width /
+        // max-height from Framer's style, would squeeze the theater.
         margin: 0,
         color: "inherit",
+        maxWidth: "none",
+        maxHeight: "none",
         zIndex: 9999,
         transform: "none",
         willChange: "top, left, width, height",
@@ -283,6 +287,8 @@ function getTheaterStyle(framePadding: number, aspect: number, transition = "non
         height,
         margin: 0,
         color: "inherit",
+        maxWidth: "none",
+        maxHeight: "none",
         zIndex: 9999,
         transform: "none",
         willChange: "top, left, width, height",
