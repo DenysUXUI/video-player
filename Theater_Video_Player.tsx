@@ -678,11 +678,22 @@ export default function TheaterVideoPlayer({
     const togglePlay = () => {
         const v = videoRef.current
         if (!v) return
-        if (isPlaying) {
+        // A media element in an error state rejects every play() call, so one
+        // network hiccup used to leave the player dead until a page reload.
+        // Play now doubles as a retry: reload the source and resume where it stopped.
+        const failed = loadError || !!v.error
+        if (isPlaying && !failed) {
             v.pause()
             setIsPlaying(false)
             revealControls()
         } else {
+            if (failed) {
+                const resumeAt = v.currentTime
+                setLoadError(false)
+                v.load()
+                // Before metadata arrives this sets the start position for the reload
+                if (resumeAt > 0) v.currentTime = resumeAt
+            }
             // Optimistic UI; roll back if the browser rejects play()
             // (iOS Safari rejects when there is no user gesture context)
             setIsPlaying(true)
