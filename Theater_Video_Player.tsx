@@ -985,6 +985,11 @@ export default function TheaterVideoPlayer({
                     }}
                     onPause={() => { setIsPlaying(false); revealControls() }}
                     onEnded={() => { setIsPlaying(false); revealControls() }}
+                    // Native fullscreen controls and media keys can mute/unmute
+                    // behind our back — mirror the element so the icon stays truthful.
+                    onVolumeChange={() => {
+                        if (videoRef.current) setIsMuted(videoRef.current.muted)
+                    }}
                     onError={() => setLoadError(true)}
                 />
 
