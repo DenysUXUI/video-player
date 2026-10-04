@@ -705,8 +705,13 @@ export default function TheaterVideoPlayer({
         setControlsVisible(true)
     }, [autoHideControls])
 
+    // True while the video is silent only because autoplay muted it — the
+    // visitor hasn't chosen that, so their Play brings the Muted setting back
+    const autoMutedRef = useRef(false)
+
     // Keep mute state in sync when the designer toggles the prop in Framer panel
     useEffect(() => {
+        autoMutedRef.current = false
         setIsMuted(mutedByDefault)
         if (videoRef.current) videoRef.current.muted = mutedByDefault
     }, [mutedByDefault])
@@ -725,11 +730,28 @@ export default function TheaterVideoPlayer({
         const v = videoRef.current
         if (!v || !autoplayPendingRef.current || inViewRef.current !== true) return
         autoplayPendingRef.current = false
+        // Autoplay always starts silent: sound nobody asked for is an
+        // accessibility failure (WCAG 1.4.2), and browsers block it anyway —
+        // with Muted off the video used to just sit there. The Muted
+        // setting takes over when a visitor presses Play.
+        if (!v.muted) {
+            v.muted = true
+            autoMutedRef.current = true
+            setIsMuted(true)
+        }
         // onPlay takes care of the rest of the UI (auto-hide timer)
         v.play().then(() => {
             setIsPlaying(true)
             setHasEverPlayed(true)
-        }).catch(() => {})
+        }).catch((err: unknown) => {
+            // Blocked even silent (iOS Low Power Mode): nothing is playing,
+            // so give the sound setting back. Not on an interrupted start —
+            // that video may resume later, and it must resume silent.
+            if ((err as Error | null)?.name !== "NotAllowedError" || !autoMutedRef.current) return
+            autoMutedRef.current = false
+            v.muted = false
+            setIsMuted(false)
+        })
     }, [])
 
     useEffect(() => {
@@ -856,6 +878,13 @@ export default function TheaterVideoPlayer({
             revealControls()
         } else {
             warmUp()
+            // A visitor's Play: if only autoplay muted the video, the
+            // designer's Muted setting applies now (a click allows sound)
+            if (autoMutedRef.current) {
+                autoMutedRef.current = false
+                v.muted = false
+                setIsMuted(false)
+            }
             if (failed) {
                 const resumeAt = v.currentTime
                 setLoadError(false)
@@ -882,6 +911,8 @@ export default function TheaterVideoPlayer({
         e.stopPropagation()
         const v = videoRef.current
         if (!v) return
+        // The visitor picked the sound themselves — Play no longer overrides it
+        autoMutedRef.current = false
         v.muted = !isMuted
         setIsMuted(!isMuted)
     }
@@ -1223,7 +1254,10 @@ export default function TheaterVideoPlayer({
                     // Native fullscreen controls and media keys can mute/unmute
                     // behind our back — mirror the element so the icon stays truthful.
                     onVolumeChange={() => {
-                        if (videoRef.current) setIsMuted(videoRef.current.muted)
+                        if (!videoRef.current) return
+                        // Sound turned on from outside: autoplay's mute is over
+                        if (!videoRef.current.muted) autoMutedRef.current = false
+                        setIsMuted(videoRef.current.muted)
                     }}
                     // Safari keeps the element "playing" after a failed load and
                     // fires no pause event — reset here so the Play icon and the
@@ -1572,7 +1606,7 @@ addPropertyControls(TheaterVideoPlayer, {
         defaultValue: true,
         enabledTitle: "On",
         disabledTitle: "Off",
-        description: "Initial mute state. Browsers block autoplay with sound.",
+        description: "Sound when a visitor presses Play. Autoplay always starts muted.",
     },
     autoplay: {
         type: ControlType.Boolean,
@@ -1580,6 +1614,7 @@ addPropertyControls(TheaterVideoPlayer, {
         defaultValue: false,
         enabledTitle: "On",
         disabledTitle: "Off",
+        description: "Plays muted while the player is on screen.",
     },
     autoHideControls: {
         type: ControlType.Boolean,
