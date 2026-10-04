@@ -1078,21 +1078,31 @@ export default function TheaterVideoPlayer({
     // the full window width while parsing (which covers theater mode too),
     // and a smaller hint now would only add a second download.
     const measuresThumb = !hydrated && typeof ResizeObserver !== "undefined"
+    // Width ÷ height of the picture, known once a variant has loaded
+    const thumbAspectRef = useRef(0)
+    const measureThumb = useCallback(() => {
+        const img = thumbRef.current
+        if (!img) return
+        // Layout size, not getBoundingClientRect(): a scale on an ancestor
+        // (Framer appear effects) would shrink the measure — at scale(0) to
+        // nothing, and no thumbnail would ever load
+        const w = img.offsetWidth
+        const h = img.offsetHeight
+        // object-fit: cover scales a picture wider than the frame to the
+        // frame's height and crops the sides (a 16:9 thumbnail in a 9:16
+        // player), so it is drawn wider than the frame — size for that
+        const aspect = thumbAspectRef.current
+        const drawn = aspect > 0 && h * aspect > w * 1.02 ? Math.ceil(h * aspect) : w
+        if (drawn > 0) setThumbWidth((prev) => Math.max(prev, drawn))
+    }, [])
     useIsomorphicLayoutEffect(() => {
         const img = thumbRef.current
         if (!measuresThumb || !img) return
-        const measure = () => {
-            // Layout width, not getBoundingClientRect(): a scale on an
-            // ancestor (Framer appear effects) would shrink the measure —
-            // at scale(0) to nothing, and no thumbnail would ever load
-            const w = img.offsetWidth
-            if (w > 0) setThumbWidth((prev) => Math.max(prev, w))
-        }
-        measure()
-        const observer = new ResizeObserver(measure)
+        measureThumb()
+        const observer = new ResizeObserver(measureThumb)
         observer.observe(img)
         return () => observer.disconnect()
-    }, [measuresThumb, showThumbnail])
+    }, [measuresThumb, showThumbnail, measureThumb])
     // Safari starts the download the moment `src` / `srcSet` land, so they
     // wait for the first measurement (a synchronous re-render, before paint).
     // A player that has no width yet (hidden) loads its thumbnail once shown.
@@ -1234,6 +1244,14 @@ export default function TheaterVideoPlayer({
                         srcSet={holdThumb ? undefined : thumbnail?.srcSet}
                         src={holdThumb ? undefined : thumbnailSrc}
                         decoding="async"
+                        onLoad={(e) => {
+                            if (!measuresThumb) return
+                            const { naturalWidth, naturalHeight } = e.currentTarget
+                            if (naturalWidth > 0 && naturalHeight > 0) {
+                                thumbAspectRef.current = naturalWidth / naturalHeight
+                                measureThumb()
+                            }
+                        }}
                         alt={thumbnail?.alt ?? ""}
                         style={{
                             position: "absolute",
