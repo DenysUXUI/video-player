@@ -711,12 +711,69 @@ export default function TheaterVideoPlayer({
         if (videoRef.current) videoRef.current.muted = mutedByDefault
     }, [mutedByDefault])
 
-    // Autoplay on mount / when source changes.
+    // Off-screen players stay still. Autoplay waits until the player is on
+    // screen, and a muted video that scrolls out of view pauses until it's
+    // back — before, every autoplay player downloaded and decoded for nobody
+    // (three players, two below the fold: 40 MB and +75% CPU). A video with
+    // sound keeps playing (someone may be listening), and a pause the
+    // visitor made is never undone: only a pause made here is resumed.
+    const inViewRef = useRef<boolean | null>(null) // null until first report
+    const autoplayPendingRef = useRef(false)
+    const pausedOffscreenRef = useRef(false)
+
+    const tryAutoplay = useCallback(() => {
+        const v = videoRef.current
+        if (!v || !autoplayPendingRef.current || inViewRef.current !== true) return
+        autoplayPendingRef.current = false
+        // onPlay takes care of the rest of the UI (auto-hide timer)
+        v.play().then(() => {
+            setIsPlaying(true)
+            setHasEverPlayed(true)
+        }).catch(() => {})
+    }, [])
+
+    useEffect(() => {
+        const v = videoRef.current
+        if (!v || isStaticRenderer) return
+        if (typeof IntersectionObserver === "undefined") {
+            // Older browsers: autoplay right away, as before
+            inViewRef.current = true
+            tryAutoplay()
+            return
+        }
+        const observer = new IntersectionObserver(([entry]) => {
+            inViewRef.current = entry.isIntersecting
+            if (entry.isIntersecting) {
+                if (pausedOffscreenRef.current) {
+                    pausedOffscreenRef.current = false
+                    if (v.paused) v.play().catch(() => {})
+                }
+                tryAutoplay()
+                return
+            }
+            // Fullscreen and picture-in-picture are on screen whatever the
+            // page layout says
+            const fullscreen = document.fullscreenElement
+            if (
+                v.paused || !v.muted ||
+                (fullscreen && fullscreen.contains(v)) ||
+                (v as NativeFullscreenVideo).webkitDisplayingFullscreen ||
+                document.pictureInPictureElement === v
+            ) return
+            pausedOffscreenRef.current = true
+            v.pause()
+        })
+        observer.observe(v)
+        return () => observer.disconnect()
+    }, [isStaticRenderer, tryAutoplay])
+
+    // Autoplay on mount / when source changes — once the player is on screen.
     // Never on the canvas, in image export or in project thumbnails — a video
     // must not start playing there. Listing the excluded targets (like
     // Framer's own Video component does) keeps autoplay working on the
     // preview and the published site even if Framer adds new targets.
     useEffect(() => {
+        autoplayPendingRef.current = false
         if (!autoplay) return
         const target = RenderTarget.current()
         if (
@@ -727,12 +784,9 @@ export default function TheaterVideoPlayer({
         ) return
         const src = (sourceType === "upload" ? videoFile : videoUrl) || undefined
         if (!src) return
-        videoRef.current?.play().then(() => {
-            setIsPlaying(true)
-            setHasEverPlayed(true)
-            scheduleHide()
-        }).catch(() => {})
-    }, [autoplay, sourceType, videoFile, videoUrl, isStaticRenderer])
+        autoplayPendingRef.current = true
+        tryAutoplay()
+    }, [autoplay, sourceType, videoFile, videoUrl, isStaticRenderer, tryAutoplay])
 
     // Reset playback + UI state when the source changes so a new video starts clean,
     // then read what the <video> element already knows. On a published site the
@@ -748,6 +802,7 @@ export default function TheaterVideoPlayer({
         setDurationSeconds(0)
         setHoverTime(null)
         setHoverPercent(0)
+        pausedOffscreenRef.current = false
 
         const v = videoRef.current
         if (!v) return
@@ -1121,6 +1176,10 @@ export default function TheaterVideoPlayer({
                     // Keep React state synced with the <video> element so play/pause
                     // toggled from native iOS fullscreen controls or browser UI is reflected here.
                     onPlay={() => {
+                        // Whoever started it, autoplay is done and nothing
+                        // waits to be resumed — a later pause stays put
+                        autoplayPendingRef.current = false
+                        pausedOffscreenRef.current = false
                         setIsPlaying(true)
                         setHasEverPlayed(true)
                         scheduleHide()
