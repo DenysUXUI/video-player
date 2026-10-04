@@ -650,6 +650,7 @@ export default function TheaterVideoPlayer({
     const [progressFocused, setProgressFocused] = useState(false)
     const [hasEverPlayed, setHasEverPlayed] = useState(false)
     const [loadError, setLoadError] = useState(false)
+    const [warmedUp, setWarmedUp] = useState(false)
     const [thumbWidth, setThumbWidth] = useState(0)
     // True when this player came from server HTML (a published page's first
     // load), false when React built it in the browser. Fixed at mount.
@@ -764,6 +765,16 @@ export default function TheaterVideoPlayer({
         }
     }, [sourceType, videoUrl, videoFile])
 
+    // A player behind a thumbnail downloads nothing until someone shows
+    // interest (see `preload` on the <video>). Pointing at it, tabbing into
+    // it or touching it says Play may be next: fetch the metadata now.
+    const warmUp = () => {
+        const v = videoRef.current
+        if (!v || v.preload !== "none") return
+        v.preload = "metadata"
+        setWarmedUp(true)
+    }
+
     const togglePlay = () => {
         const v = videoRef.current
         if (!v) return
@@ -776,6 +787,7 @@ export default function TheaterVideoPlayer({
             setIsPlaying(false)
             revealControls()
         } else {
+            warmUp()
             if (failed) {
                 const resumeAt = v.currentTime
                 setLoadError(false)
@@ -1056,6 +1068,11 @@ export default function TheaterVideoPlayer({
             }}
             onMouseMove={handleMouseMove}
             onKeyDown={handleRootKeyDown}
+            // pointermove too: a pointer already resting on the player when
+            // the page came alive never "enters" it
+            onPointerEnter={warmUp}
+            onPointerMove={warmUp}
+            onFocus={warmUp}
         >
             {/* Inner video frame.
                 aspectRatio gives it a natural height in Framer "Fit" mode.
@@ -1078,7 +1095,13 @@ export default function TheaterVideoPlayer({
                     muted={isMuted}
                     loop={loop}
                     playsInline
-                    preload="metadata"
+                    // Behind a thumbnail nothing is seen until Play, yet
+                    // "metadata" still pulled the first seconds of video
+                    // (2+ MB in Chrome) for every player on page load.
+                    // Without a thumbnail Safari would show an empty frame,
+                    // and autoplay needs the data — both still load up front,
+                    // as does the canvas, so a broken URL shows right away.
+                    preload={thumbnailSrc && !autoplay && !isStaticRenderer && !warmedUp ? "none" : "metadata"}
                     style={{
                         position: "absolute",
                         inset: 0,
