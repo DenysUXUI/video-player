@@ -741,7 +741,10 @@ export default function TheaterVideoPlayer({
             tryAutoplay()
             return
         }
-        const observer = new IntersectionObserver(([entry]) => {
+        const observer = new IntersectionObserver((entries) => {
+            // A busy page can deliver several reports at once — the last one
+            // is where the player is now
+            const entry = entries[entries.length - 1]
             inViewRef.current = entry.isIntersecting
             if (entry.isIntersecting) {
                 if (pausedOffscreenRef.current) {
@@ -1177,9 +1180,14 @@ export default function TheaterVideoPlayer({
                     // toggled from native iOS fullscreen controls or browser UI is reflected here.
                     onPlay={() => {
                         // Whoever started it, autoplay is done and nothing
-                        // waits to be resumed — a later pause stays put
-                        autoplayPendingRef.current = false
-                        pausedOffscreenRef.current = false
+                        // waits to be resumed — a later pause stays put.
+                        // Unless the event is stale: on a busy page a "play"
+                        // can arrive after the observer has paused again, and
+                        // clearing then would leave the video stuck on screen.
+                        if (videoRef.current && !videoRef.current.paused) {
+                            autoplayPendingRef.current = false
+                            pausedOffscreenRef.current = false
+                        }
                         setIsPlaying(true)
                         setHasEverPlayed(true)
                         scheduleHide()
