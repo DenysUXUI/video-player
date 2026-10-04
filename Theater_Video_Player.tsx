@@ -1082,7 +1082,10 @@ export default function TheaterVideoPlayer({
         const img = thumbRef.current
         if (!measuresThumb || !img) return
         const measure = () => {
-            const w = Math.ceil(img.getBoundingClientRect().width)
+            // Layout width, not getBoundingClientRect(): a scale on an
+            // ancestor (Framer appear effects) would shrink the measure —
+            // at scale(0) to nothing, and no thumbnail would ever load
+            const w = img.offsetWidth
             if (w > 0) setThumbWidth((prev) => Math.max(prev, w))
         }
         measure()
