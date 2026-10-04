@@ -18,6 +18,7 @@ import {
     useLayoutEffect,
     useCallback,
     useMemo,
+    useSyncExternalStore,
     type CSSProperties,
     type KeyboardEvent as ReactKeyboardEvent,
     type MouseEvent as ReactMouseEvent,
@@ -200,6 +201,9 @@ type PopoverElement = HTMLElement & {
 
 // useLayoutEffect warns during server rendering, and Framer pre-renders sites
 const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect
+
+// A store that never changes — only its server/client snapshots matter
+const subscribeNever = () => () => {}
 
 function rectToFixedStyle(rect: Pick<DOMRect, "top" | "left" | "width" | "height">, transition = "none"): CSSProperties {
     return {
@@ -614,6 +618,7 @@ export default function TheaterVideoPlayer({
     style,
 }: Props) {
     const videoRef = useRef<HTMLVideoElement>(null)
+    const thumbRef = useRef<HTMLImageElement>(null)
     const rootRef = useRef<HTMLDivElement>(null)
     const placeholderRef = useRef<HTMLDivElement>(null)
     const progressRef = useRef<HTMLDivElement>(null)
@@ -645,6 +650,11 @@ export default function TheaterVideoPlayer({
     const [progressFocused, setProgressFocused] = useState(false)
     const [hasEverPlayed, setHasEverPlayed] = useState(false)
     const [loadError, setLoadError] = useState(false)
+    const [thumbWidth, setThumbWidth] = useState(0)
+    // True when this player came from server HTML (a published page's first
+    // load), false when React built it in the browser. Fixed at mount.
+    const isClientRender = useSyncExternalStore(subscribeNever, () => true, () => false)
+    const [hydrated] = useState(() => !isClientRender)
 
     const scheduleHide = () => {
         if (hideTimer.current) clearTimeout(hideTimer.current)
@@ -979,6 +989,32 @@ export default function TheaterVideoPlayer({
     const showThumbnail = !!thumbnailSrc && !hasEverPlayed
     const hasSource = !!effectiveSrc
 
+    // `sizes` for the thumbnail. Without it the browser assumes the image
+    // spans the whole window and takes a srcSet variant several times too
+    // big — a 4K file for a 640px player on a retina laptop. The width only
+    // grows: theater mode needs a sharper copy, shrinking back would fetch a
+    // second one.
+    // A pre-rendered page is left alone: the browser picked its variant for
+    // the full window width while parsing (which covers theater mode too),
+    // and a smaller hint now would only add a second download.
+    const measuresThumb = !hydrated && !!thumbnail?.srcSet && typeof ResizeObserver !== "undefined"
+    useIsomorphicLayoutEffect(() => {
+        const img = thumbRef.current
+        if (!measuresThumb || !img) return
+        const measure = () => {
+            const w = Math.ceil(img.getBoundingClientRect().width)
+            if (w > 0) setThumbWidth((prev) => Math.max(prev, w))
+        }
+        measure()
+        const observer = new ResizeObserver(measure)
+        observer.observe(img)
+        return () => observer.disconnect()
+    }, [measuresThumb, showThumbnail])
+    // Safari starts the download the moment `src` / `srcSet` land, so they
+    // wait for the first measurement (a synchronous re-render, before paint).
+    // A player that has no width yet (hidden) loads its thumbnail once shown.
+    const holdThumb = measuresThumb && thumbWidth === 0
+
     const borderColor = `rgba(255,255,255,${borderOpacity})`
     // Static renders (canvas, export) always show the controls
     const controlsAreVisible = isStaticRenderer || !autoHideControls || controlsVisible
@@ -1085,8 +1121,13 @@ export default function TheaterVideoPlayer({
 
                 {showThumbnail && thumbnailSrc && (
                     <img
-                        src={thumbnailSrc}
-                        srcSet={thumbnail?.srcSet}
+                        ref={thumbRef}
+                        // sizes before srcSet before src: each lands with
+                        // the previous one already in place
+                        sizes={thumbWidth > 0 ? `${thumbWidth}px` : undefined}
+                        srcSet={holdThumb ? undefined : thumbnail?.srcSet}
+                        src={holdThumb ? undefined : thumbnailSrc}
+                        decoding="async"
                         alt={thumbnail?.alt ?? ""}
                         style={{
                             position: "absolute",
