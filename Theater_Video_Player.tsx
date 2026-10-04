@@ -1077,7 +1077,7 @@ export default function TheaterVideoPlayer({
     // A pre-rendered page is left alone: the browser picked its variant for
     // the full window width while parsing (which covers theater mode too),
     // and a smaller hint now would only add a second download.
-    const measuresThumb = !hydrated && !!thumbnail?.srcSet && typeof ResizeObserver !== "undefined"
+    const measuresThumb = !hydrated && typeof ResizeObserver !== "undefined"
     useIsomorphicLayoutEffect(() => {
         const img = thumbRef.current
         if (!measuresThumb || !img) return
@@ -1096,7 +1096,9 @@ export default function TheaterVideoPlayer({
     // Safari starts the download the moment `src` / `srcSet` land, so they
     // wait for the first measurement (a synchronous re-render, before paint).
     // A player that has no width yet (hidden) loads its thumbnail once shown.
-    const holdThumb = measuresThumb && thumbWidth === 0
+    // Thumbnails without a srcSet are measured too, so one that gains a
+    // srcSet later isn't cleared while it waits.
+    const holdThumb = measuresThumb && !!thumbnail?.srcSet && thumbWidth === 0
 
     const borderColor = `rgba(255,255,255,${borderOpacity})`
     // Static renders (canvas, export) always show the controls
