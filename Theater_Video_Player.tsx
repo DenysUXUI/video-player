@@ -186,6 +186,10 @@ const THEATER_CLOSE_MS = 320
 const THEATER_OPEN_EASE = "cubic-bezier(0.2, 0, 0, 1)"
 const THEATER_CLOSE_EASE = "cubic-bezier(0.4, 0, 0.6, 1)"
 const MOBILE_NATIVE_FULLSCREEN_MAX_WIDTH = 767
+// Touch screens warm up a player that stays on screen this long —
+// long enough that flicking past it doesn't count
+const TOUCH_WARM_UP_MS = 300
+const TOUCH_WARM_UP_THRESHOLDS = Array.from({ length: 21 }, (_, i) => i / 20)
 
 type NativeFullscreenVideo = HTMLVideoElement & {
     webkitEnterFullscreen?: () => void
@@ -848,6 +852,7 @@ export default function TheaterVideoPlayer({
     // A player behind a thumbnail downloads nothing until someone shows
     // interest (see `preload` on the <video>). Pointing at it, tabbing into
     // it or touching it says Play may be next: fetch the metadata now.
+    // On touch screens, stopping on it counts too (see holdsDownload).
     const warmUp = () => {
         const v = videoRef.current
         if (!v || v.preload !== "none") return
@@ -1099,6 +1104,39 @@ export default function TheaterVideoPlayer({
 
     const showThumbnail = !!thumbnailSrc && !hasEverPlayed
     const hasSource = !!effectiveSrc
+    // The <video> downloads nothing until warm-up (see `preload` below)
+    const holdsDownload = !!thumbnailSrc && !autoplay && !isStaticRenderer && !warmedUp
+
+    // Phones have no hover to say Play may be next, so the tap itself paid
+    // the whole cold start (Safari: up to ~1 s). On touch screens a player
+    // that settles on screen warms up: half of it in view — or half the
+    // screen, when it's taller than two screens — for 0.3 s. Flicking past
+    // players warms none of them.
+    useEffect(() => {
+        const v = videoRef.current
+        if (!v || !holdsDownload || typeof IntersectionObserver === "undefined") return
+        if (!window.matchMedia?.("(hover: none)").matches) return
+        let timer: ReturnType<typeof setTimeout> | null = null
+        const observer = new IntersectionObserver((entries) => {
+            const entry = entries[entries.length - 1]
+            const screenHeight = entry.rootBounds?.height ?? window.innerHeight
+            const settled = entry.isIntersecting && (
+                entry.intersectionRatio >= 0.5 ||
+                entry.intersectionRect.height >= screenHeight / 2
+            )
+            if (!settled) {
+                if (timer) clearTimeout(timer)
+                timer = null
+            } else if (!timer) {
+                timer = setTimeout(warmUp, TOUCH_WARM_UP_MS)
+            }
+        }, { threshold: TOUCH_WARM_UP_THRESHOLDS })
+        observer.observe(v)
+        return () => {
+            observer.disconnect()
+            if (timer) clearTimeout(timer)
+        }
+    }, [holdsDownload])
 
     // `sizes` for the thumbnail. Without it the browser assumes the image
     // spans the whole window and takes a srcSet variant several times too
@@ -1216,7 +1254,7 @@ export default function TheaterVideoPlayer({
                     // Without a thumbnail Safari would show an empty frame,
                     // and autoplay needs the data — both still load up front,
                     // as does the canvas, so a broken URL shows right away.
-                    preload={thumbnailSrc && !autoplay && !isStaticRenderer && !warmedUp ? "none" : "metadata"}
+                    preload={holdsDownload ? "none" : "metadata"}
                     style={{
                         position: "absolute",
                         inset: 0,
