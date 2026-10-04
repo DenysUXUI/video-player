@@ -833,6 +833,16 @@ export default function TheaterVideoPlayer({
         setWarmedUp(true)
     }
 
+    // The page scrolling under a resting mouse sends pointer events too —
+    // always at the same spot. Only a pointer that really moves over the
+    // player counts, or a wheel-scrolling visitor warms every player passed.
+    const lastPointerRef = useRef<{ x: number; y: number } | null>(null)
+    const handlePointerMoveWarmUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+        const last = lastPointerRef.current
+        lastPointerRef.current = { x: e.clientX, y: e.clientY }
+        if (last && (last.x !== e.clientX || last.y !== e.clientY)) warmUp()
+    }
+
     const togglePlay = () => {
         const v = videoRef.current
         if (!v) return
@@ -1126,10 +1136,11 @@ export default function TheaterVideoPlayer({
             }}
             onMouseMove={handleMouseMove}
             onKeyDown={handleRootKeyDown}
-            // pointermove too: a pointer already resting on the player when
-            // the page came alive never "enters" it
-            onPointerEnter={warmUp}
-            onPointerMove={warmUp}
+            // Capture phase: the progress bar stops its pointerdown from
+            // bubbling
+            onPointerDownCapture={warmUp}
+            onPointerMove={handlePointerMoveWarmUp}
+            onPointerLeave={() => { lastPointerRef.current = null }}
             onFocus={warmUp}
         >
             {/* Inner video frame.
