@@ -734,6 +734,10 @@ export default function TheaterVideoPlayer({
         const v = videoRef.current
         if (!v || !autoplayPendingRef.current || inViewRef.current !== true) return
         autoplayPendingRef.current = false
+        // Already playing — a visitor pressed Play before Autoplay came on
+        // (a hover variant switches it on the fly). Muting it would cut the
+        // sound they are listening to.
+        if (!v.paused && !v.ended) return
         // Autoplay always starts silent: sound nobody asked for is an
         // accessibility failure (WCAG 1.4.2), and browsers block it anyway —
         // with Muted off the video used to just sit there. The Muted
