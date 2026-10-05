@@ -1115,12 +1115,20 @@ export default function TheaterVideoPlayer({
     // the whole cold start (Safari: up to ~1 s). On touch screens a player
     // that settles on screen warms up: half of it in view — or half the
     // screen, when it's taller than two screens — and holds still for 0.3 s.
-    // Flicking or slowly scrolling past players warms none of them.
+    // Flicking or slowly scrolling past players warms none of them, and a
+    // thumbnail still loading is waited for.
     useEffect(() => {
         const v = videoRef.current
         if (!v || !holdsDownload || typeof IntersectionObserver === "undefined") return
         if (!window.matchMedia?.("(hover: none)").matches) return
         let timer: ReturnType<typeof setTimeout> | null = null
+        let stopWaiting: (() => void) | null = null
+        const cancel = () => {
+            if (timer) clearTimeout(timer)
+            timer = null
+            stopWaiting?.()
+            stopWaiting = null
+        }
         // Time on screen alone isn't settling: a page scrolled slowly keeps
         // a player in view for longer than the delay. When the delay is up
         // the player must not have moved, or it waits another beat.
@@ -1132,7 +1140,19 @@ export default function TheaterVideoPlayer({
                     arm()
                     return
                 }
-                warmUp()
+                // The thumbnail goes first: on a slow connection the video
+                // would take bandwidth from the picture the visitor sees
+                const img = thumbRef.current
+                if (!img || img.complete) {
+                    warmUp()
+                    return
+                }
+                img.addEventListener("load", warmUp, { once: true })
+                img.addEventListener("error", warmUp, { once: true })
+                stopWaiting = () => {
+                    img.removeEventListener("load", warmUp)
+                    img.removeEventListener("error", warmUp)
+                }
             }, TOUCH_WARM_UP_MS)
         }
         const observer = new IntersectionObserver((entries) => {
@@ -1143,8 +1163,7 @@ export default function TheaterVideoPlayer({
                 entry.intersectionRect.height >= screenHeight / 2
             )
             if (!settled) {
-                if (timer) clearTimeout(timer)
-                timer = null
+                cancel()
             } else if (!timer) {
                 arm()
             }
@@ -1152,7 +1171,7 @@ export default function TheaterVideoPlayer({
         observer.observe(v)
         return () => {
             observer.disconnect()
-            if (timer) clearTimeout(timer)
+            cancel()
         }
     }, [holdsDownload])
 
