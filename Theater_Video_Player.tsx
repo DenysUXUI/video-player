@@ -1114,13 +1114,27 @@ export default function TheaterVideoPlayer({
     // Phones have no hover to say Play may be next, so the tap itself paid
     // the whole cold start (Safari: up to ~1 s). On touch screens a player
     // that settles on screen warms up: half of it in view — or half the
-    // screen, when it's taller than two screens — for 0.3 s. Flicking past
-    // players warms none of them.
+    // screen, when it's taller than two screens — and holds still for 0.3 s.
+    // Flicking or slowly scrolling past players warms none of them.
     useEffect(() => {
         const v = videoRef.current
         if (!v || !holdsDownload || typeof IntersectionObserver === "undefined") return
         if (!window.matchMedia?.("(hover: none)").matches) return
         let timer: ReturnType<typeof setTimeout> | null = null
+        // Time on screen alone isn't settling: a page scrolled slowly keeps
+        // a player in view for longer than the delay. When the delay is up
+        // the player must not have moved, or it waits another beat.
+        const arm = () => {
+            const start = v.getBoundingClientRect()
+            timer = setTimeout(() => {
+                const now = v.getBoundingClientRect()
+                if (Math.abs(now.top - start.top) > 8 || Math.abs(now.left - start.left) > 8) {
+                    arm()
+                    return
+                }
+                warmUp()
+            }, TOUCH_WARM_UP_MS)
+        }
         const observer = new IntersectionObserver((entries) => {
             const entry = entries[entries.length - 1]
             const screenHeight = entry.rootBounds?.height ?? window.innerHeight
@@ -1132,7 +1146,7 @@ export default function TheaterVideoPlayer({
                 if (timer) clearTimeout(timer)
                 timer = null
             } else if (!timer) {
-                timer = setTimeout(warmUp, TOUCH_WARM_UP_MS)
+                arm()
             }
         }, { threshold: TOUCH_WARM_UP_THRESHOLDS })
         observer.observe(v)
