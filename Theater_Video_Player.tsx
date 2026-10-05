@@ -1113,8 +1113,9 @@ export default function TheaterVideoPlayer({
 
     // Phones have no hover to say Play may be next, so the tap itself paid
     // the whole cold start (Safari: up to ~1 s). On touch screens a player
-    // that settles on screen warms up: half of it in view — or half the
-    // screen, when it's taller than two screens — and holds still for 0.3 s.
+    // that settles on screen warms up: half of it in view, or half the
+    // screen's height filled across half its width (a player taller than
+    // two screens is never half in view) — and holds still for 0.3 s.
     // Flicking or slowly scrolling past players warms none of them, and a
     // thumbnail still loading is waited for.
     useEffect(() => {
@@ -1158,9 +1159,12 @@ export default function TheaterVideoPlayer({
         const observer = new IntersectionObserver((entries) => {
             const entry = entries[entries.length - 1]
             const screenHeight = entry.rootBounds?.height ?? window.innerHeight
+            // Height alone isn't enough: in a sideways carousel of tall
+            // cards, the next card's edge fills the screen's height too
             const settled = entry.isIntersecting && (
                 entry.intersectionRatio >= 0.5 ||
-                entry.intersectionRect.height >= screenHeight / 2
+                (entry.intersectionRect.height >= screenHeight / 2 &&
+                    entry.intersectionRect.width >= entry.boundingClientRect.width / 2)
             )
             if (!settled) {
                 cancel()
