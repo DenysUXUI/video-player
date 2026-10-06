@@ -190,6 +190,9 @@ const MOBILE_NATIVE_FULLSCREEN_MAX_WIDTH = 767
 // long enough that flicking past it doesn't count
 const TOUCH_WARM_UP_MS = 300
 const TOUCH_WARM_UP_THRESHOLDS = Array.from({ length: 21 }, (_, i) => i / 20)
+// A cropped thumbnail asks for a sharper copy as soon as the first one
+// arrives — the request is under way well within this long
+const THUMB_RECHECK_MS = 100
 
 type NativeFullscreenVideo = HTMLVideoElement & {
     webkitEnterFullscreen?: () => void
@@ -1118,7 +1121,7 @@ export default function TheaterVideoPlayer({
     // (a player taller or wider than two screens is never half in view) —
     // and holds still for 0.3 s.
     // Flicking or slowly scrolling past players warms none of them, and a
-    // thumbnail still loading is waited for.
+    // thumbnail still loading is waited for, its sharper copy included.
     useEffect(() => {
         const v = videoRef.current
         if (!v || !holdsDownload || typeof IntersectionObserver === "undefined") return
@@ -1131,6 +1134,29 @@ export default function TheaterVideoPlayer({
             stopWaiting?.()
             stopWaiting = null
         }
+        // The thumbnail goes first: on a slow connection the video would
+        // take bandwidth from the picture the visitor sees. A cropped
+        // thumbnail comes in two steps — once its shape is known, a sharper
+        // copy follows (see measureThumb) — so each time a copy arrives,
+        // look again a moment later and wait for the next one too.
+        const waitForThumb = () => {
+            const img = thumbRef.current
+            if (!img || img.complete) {
+                warmUp()
+                return
+            }
+            const arrived = () => {
+                stopWaiting?.()
+                stopWaiting = null
+                timer = setTimeout(waitForThumb, THUMB_RECHECK_MS)
+            }
+            img.addEventListener("load", arrived)
+            img.addEventListener("error", arrived)
+            stopWaiting = () => {
+                img.removeEventListener("load", arrived)
+                img.removeEventListener("error", arrived)
+            }
+        }
         // Time on screen alone isn't settling: a page scrolled slowly keeps
         // a player in view for longer than the delay. When the delay is up
         // the player must not have moved, or it waits another beat.
@@ -1142,19 +1168,7 @@ export default function TheaterVideoPlayer({
                     arm()
                     return
                 }
-                // The thumbnail goes first: on a slow connection the video
-                // would take bandwidth from the picture the visitor sees
-                const img = thumbRef.current
-                if (!img || img.complete) {
-                    warmUp()
-                    return
-                }
-                img.addEventListener("load", warmUp, { once: true })
-                img.addEventListener("error", warmUp, { once: true })
-                stopWaiting = () => {
-                    img.removeEventListener("load", warmUp)
-                    img.removeEventListener("error", warmUp)
-                }
+                waitForThumb()
             }, TOUCH_WARM_UP_MS)
         }
         const observer = new IntersectionObserver((entries) => {
