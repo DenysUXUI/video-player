@@ -1177,8 +1177,9 @@ export default function TheaterVideoPlayer({
             const screenHeight = entry.rootBounds?.height ?? window.innerHeight
             // Height alone isn't enough: in a sideways carousel of tall
             // cards, the next card's edge fills the screen's height too.
-            // Half the width must show as well — of the screen, for a
-            // player wider than the screen (it can never show half of its own)
+            // Half the width must show as well: half the player's, or half
+            // the screen's if that is less (a player over twice as wide as
+            // the screen can never show half of its own).
             const settled = entry.isIntersecting && (
                 entry.intersectionRatio >= 0.5 ||
                 (entry.intersectionRect.height >= screenHeight / 2 &&
