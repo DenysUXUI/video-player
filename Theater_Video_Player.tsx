@@ -694,6 +694,8 @@ export default function TheaterVideoPlayer({
     // across the whole track (it did on every loop).
     const reportedTimeRef = useRef(0)
     const [jumpedBack, setJumpedBack] = useState(false)
+    // Where the bar was tapped before the video knew its length (0–1)
+    const [pendingSeek, setPendingSeek] = useState<number | null>(null)
     const [isScrubbing, setIsScrubbing] = useState(false)
     const [hoverTime, setHoverTime] = useState<number | null>(null)
     const [hoverPercent, setHoverPercent] = useState(0)
@@ -917,6 +919,7 @@ export default function TheaterVideoPlayer({
         setCurrentTime(0)
         reportedTimeRef.current = 0
         setJumpedBack(false)
+        setPendingSeek(null)
         setDurationSeconds(0)
         setHoverTime(null)
         setHoverPercent(0)
@@ -1012,7 +1015,7 @@ export default function TheaterVideoPlayer({
 
     const getProgressRatioFromClientX = (clientX: number) => {
         const track = progressRef.current
-        if (!track || durationSeconds <= 0) return 0
+        if (!track) return 0
         // Reuse the rect captured at pointerdown during an active scrub
         // to avoid getBoundingClientRect on every pointermove (layout cost).
         const rect = scrubRectRef.current ?? track.getBoundingClientRect()
@@ -1045,7 +1048,12 @@ export default function TheaterVideoPlayer({
     const handleProgressPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
         e.stopPropagation()
         e.preventDefault()
-        if (durationSeconds <= 0) return
+        // Behind a thumbnail the video knows nothing until warm-up — this
+        // very tap starts it. The tap used to be lost (only a second one
+        // seeked); now the spot is kept until the length is known.
+        const v = videoRef.current
+        const waitsForLength = durationSeconds <= 0 && !!v && !!v.getAttribute("src") && !v.error
+        if (durationSeconds <= 0 && !waitsForLength) return
         if (hideTimer.current) clearTimeout(hideTimer.current)
         e.currentTarget.setPointerCapture?.(e.pointerId)
         // Cache the track rect for the lifetime of this scrub gesture
@@ -1054,6 +1062,10 @@ export default function TheaterVideoPlayer({
         isScrubbingRef.current = true
         setIsScrubbing(true)
         setControlsVisible(true)
+        if (waitsForLength) {
+            setPendingSeek(ratio)
+            return
+        }
         setHoverTime(ratio * durationSeconds)
         setHoverPercent(ratio)
         seekToRatio(ratio)
@@ -1062,7 +1074,10 @@ export default function TheaterVideoPlayer({
     const handleProgressPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
         e.stopPropagation()
         e.preventDefault()
-        if (durationSeconds <= 0) return
+        if (durationSeconds <= 0) {
+            if (isScrubbingRef.current && pendingSeek !== null) setPendingSeek(getProgressRatioFromClientX(e.clientX))
+            return
+        }
         updateProgressHover(e.clientX)
         if (isScrubbingRef.current) seekToRatio(getProgressRatioFromClientX(e.clientX))
     }
@@ -1329,7 +1344,7 @@ export default function TheaterVideoPlayer({
     const innerRadius = Math.max(0, borderRadius - padding)
     const progress = durationSeconds > 0
         ? Math.min(1, Math.max(0, currentTime / durationSeconds))
-        : 0
+        : pendingSeek ?? 0
     // Playing, a 0.12 s glide stood still for the rest of each 0.25 s gap
     // (half the frames frozen). The fill and the handle share one motion —
     // the handle used to glide differently from the fill on a paused seek.
@@ -1410,9 +1425,17 @@ export default function TheaterVideoPlayer({
                         background: "rgba(0,0,0,0.08)",
                     }}
                     onLoadedMetadata={() => {
-                        if (!videoRef.current) return
-                        setDurationSeconds(isFinite(videoRef.current.duration) ? videoRef.current.duration : 0)
-                        setCurrentTime(videoRef.current.currentTime)
+                        const v = videoRef.current
+                        if (!v) return
+                        const duration = isFinite(v.duration) ? v.duration : 0
+                        setDurationSeconds(duration)
+                        // A spot tapped on the bar before the length was known
+                        if (pendingSeek !== null && duration > 0) {
+                            v.currentTime = pendingSeek * duration
+                            reportedTimeRef.current = v.currentTime
+                        }
+                        setPendingSeek(null)
+                        setCurrentTime(v.currentTime)
                     }}
                     onTimeUpdate={() => {
                         const v = videoRef.current
