@@ -209,6 +209,10 @@ const PROGRESS_TRACK_HEIGHT = 6
 const PROGRESS_THUMB_WIDTH = 10
 const PROGRESS_THUMB_HEIGHT = 18
 const PROGRESS_THUMB_RADIUS = 4
+// The browser reports the playback position about every 0.25 s. A glide a
+// little longer than that gap is picked up by the next report before it
+// ends, so the bar moves at an even speed instead of in jerks.
+const PROGRESS_PLAYING_GLIDE = "0.3s linear"
 const THEATER_DESKTOP_MARGIN = 48
 const THEATER_TABLET_MARGIN = 24
 const THEATER_MOBILE_MARGIN = 20
@@ -1317,9 +1321,12 @@ export default function TheaterVideoPlayer({
     const progress = durationSeconds > 0
         ? Math.min(1, Math.max(0, currentTime / durationSeconds))
         : 0
-    const progressTransition = currentTime < 0.15
-        ? "none"
-        : isPlaying ? "width 0.12s linear" : "width 0.2s ease"
+    // Playing, a 0.12 s glide stood still for the rest of each 0.25 s gap
+    // (half the frames frozen). The fill and the handle share one motion —
+    // the handle used to glide differently from the fill on a paused seek.
+    const progressMotion = isScrubbing || currentTime < 0.15
+        ? null
+        : isPlaying ? PROGRESS_PLAYING_GLIDE : "0.2s ease"
     const progressLabel = durationSeconds > 0
         ? `${formatTime(currentTime)} / ${formatTime(durationSeconds)}`
         : "--:--"
@@ -1698,7 +1705,7 @@ export default function TheaterVideoPlayer({
                                     height: PROGRESS_TRACK_HEIGHT,
                                     background: progressColor,
                                     borderRadius: 999,
-                                    transition: isScrubbing ? "none" : progressTransition,
+                                    transition: progressMotion ? `width ${progressMotion}` : "none",
                                 }}
                             />
                             <span
@@ -1714,7 +1721,7 @@ export default function TheaterVideoPlayer({
                                     boxShadow: progressFocused
                                         ? "0 1px 4px rgba(0,0,0,0.18), 0 0 0 2px rgba(255,255,255,0.9)"
                                         : "0 1px 4px rgba(0,0,0,0.18)",
-                                    transition: isScrubbing ? "none" : "left 0.12s linear",
+                                    transition: progressMotion ? `left ${progressMotion}` : "none",
                                 }}
                             />
                         </span>
