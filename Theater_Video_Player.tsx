@@ -199,6 +199,11 @@ type NativeFullscreenVideo = HTMLVideoElement & {
     webkitDisplayingFullscreen?: boolean
 }
 
+// Chrome 83+, Safari 15.4+, Firefox 132+
+type FrameCallbackVideo = HTMLVideoElement & {
+    requestVideoFrameCallback?: (callback: () => void) => number
+}
+
 // Popover API (Chrome 114+, Safari 17+, Firefox 125+) — older browsers skip
 // the top layer and keep the plain fixed frame.
 type PopoverElement = HTMLElement & {
@@ -655,7 +660,14 @@ export default function TheaterVideoPlayer({
     const [hoveredButton, setHoveredButton] = useState<"play" | "mute" | "expand" | null>(null)
     const [playActive, setPlayActive] = useState(false)
     const [progressFocused, setProgressFocused] = useState(false)
-    const [hasEverPlayed, setHasEverPlayed] = useState(false)
+    // The thumbnail stays until a video frame is on screen. Hiding it at
+    // Play left an empty frame for the whole cold start, and a start that
+    // failed lost it for good. Like a native poster, it comes back while a
+    // retry reloads the video.
+    const [frameShown, setFrameShown] = useState(false)
+    // Playback position when "playing" arrived — once it moves on, frames
+    // are being drawn even if no frame callback reports it
+    const playingFromRef = useRef<number | null>(null)
     const [loadError, setLoadError] = useState(false)
     const [warmedUp, setWarmedUp] = useState(false)
     const [thumbWidth, setThumbWidth] = useState(0)
@@ -753,7 +765,6 @@ export default function TheaterVideoPlayer({
         // onPlay takes care of the rest of the UI (auto-hide timer)
         v.play().then(() => {
             setIsPlaying(true)
-            setHasEverPlayed(true)
         }).catch((err: unknown) => {
             // Blocked even silent (iOS Low Power Mode): nothing is playing,
             // so give the sound setting back. Not on an interrupted start —
@@ -832,7 +843,8 @@ export default function TheaterVideoPlayer({
     // lives inside the reset effect so the reset can't wipe what it reads.
     useEffect(() => {
         setLoadError(false)
-        setHasEverPlayed(false)
+        setFrameShown(false)
+        playingFromRef.current = null
         setIsPlaying(false)
         setCurrentTime(0)
         setDurationSeconds(0)
@@ -852,7 +864,7 @@ export default function TheaterVideoPlayer({
         }
         if (!v.paused) {
             setIsPlaying(true)
-            setHasEverPlayed(true)
+            if (v.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) setFrameShown(true)
         }
     }, [sourceType, videoUrl, videoFile])
 
@@ -907,7 +919,6 @@ export default function TheaterVideoPlayer({
             // Optimistic UI; roll back if the browser rejects play()
             // (iOS Safari rejects when there is no user gesture context)
             setIsPlaying(true)
-            setHasEverPlayed(true)
             scheduleHide()
             const playPromise = v.play()
             if (playPromise && typeof playPromise.catch === "function") {
@@ -1109,7 +1120,7 @@ export default function TheaterVideoPlayer({
     // Same scheme check for the thumbnail — it also renders user-provided input
     const thumbnailSrc = thumbnail?.src && isSafeMediaUrl(thumbnail.src) ? thumbnail.src : undefined
 
-    const showThumbnail = !!thumbnailSrc && !hasEverPlayed
+    const showThumbnail = !!thumbnailSrc && !frameShown
     const hasSource = !!effectiveSrc
     // The <video> downloads nothing until warm-up (see `preload` below)
     const holdsDownload = !!thumbnailSrc && !autoplay && !isStaticRenderer && !warmedUp
@@ -1329,7 +1340,14 @@ export default function TheaterVideoPlayer({
                         setCurrentTime(videoRef.current.currentTime)
                     }}
                     onTimeUpdate={() => {
-                        if (videoRef.current) setCurrentTime(videoRef.current.currentTime)
+                        const v = videoRef.current
+                        if (!v) return
+                        setCurrentTime(v.currentTime)
+                        // Time moving on means frames are being drawn —
+                        // covers players no frame callback reports on
+                        // (iOS native fullscreen, older browsers)
+                        const from = playingFromRef.current
+                        if (from !== null && !v.paused && v.currentTime > from) setFrameShown(true)
                     }}
                     // Keep React state synced with the <video> element so play/pause
                     // toggled from native iOS fullscreen controls or browser UI is reflected here.
@@ -1344,8 +1362,25 @@ export default function TheaterVideoPlayer({
                             pausedOffscreenRef.current = false
                         }
                         setIsPlaying(true)
-                        setHasEverPlayed(true)
                         scheduleHide()
+                    }}
+                    // Playback has really started: the thumbnail goes once
+                    // a frame is painted. requestVideoFrameCallback reports
+                    // exactly that; without it the frame is up by the next paint.
+                    onPlaying={() => {
+                        const v = videoRef.current as FrameCallbackVideo | null
+                        if (!v || frameShown) return
+                        playingFromRef.current = v.currentTime
+                        if (typeof v.requestVideoFrameCallback === "function") {
+                            v.requestVideoFrameCallback(() => setFrameShown(true))
+                        } else {
+                            requestAnimationFrame(() => setFrameShown(true))
+                        }
+                    }}
+                    // A reload (retry, new source) clears the picture
+                    onEmptied={() => {
+                        playingFromRef.current = null
+                        setFrameShown(false)
                     }}
                     onPause={() => { setIsPlaying(false); revealControls() }}
                     onEnded={() => { setIsPlaying(false); revealControls() }}
