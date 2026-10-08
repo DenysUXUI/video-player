@@ -221,6 +221,8 @@ const THEATER_CLOSE_MS = 320
 const THEATER_OPEN_EASE = "cubic-bezier(0.2, 0, 0, 1)"
 const THEATER_CLOSE_EASE = "cubic-bezier(0.4, 0, 0.6, 1)"
 const MOBILE_NATIVE_FULLSCREEN_MAX_WIDTH = 767
+// How long a phone waits for a cold video before giving up on fullscreen
+const NATIVE_FULLSCREEN_WAIT_MS = 4000
 // Touch screens warm up a player that stays on screen this long —
 // long enough that flicking past it doesn't count
 const TOUCH_WARM_UP_MS = 300
@@ -419,6 +421,8 @@ function useTheaterMode({
     const nativeFsCleanup = useRef<(() => void) | null>(null)
     // Stops listening for the end of the close animation
     const stopCloseWait = useRef<(() => void) | null>(null)
+    // Stops waiting to enter system fullscreen (see openNativeFullscreen)
+    const stopNativeWait = useRef<(() => void) | null>(null)
     const [isExpanded, setIsExpanded] = useState(false)
     const [theaterStyle, setTheaterStyle] = useState<CSSProperties | null>(null)
 
@@ -427,6 +431,7 @@ function useTheaterMode({
         if (expandTimer.current) clearTimeout(expandTimer.current)
         if (nativeFsCleanup.current) nativeFsCleanup.current()
         stopCloseWait.current?.()
+        stopNativeWait.current?.()
     }, [])
 
     // While the frame is detached (open, plus both animations) it lives in the
@@ -587,9 +592,33 @@ function useTheaterMode({
         }
     }, [isExpanded, padding, aspect])
 
-    const openNativeFullscreen = useCallback(() => {
+    const openTheater = useCallback(() => {
+        const rect = rootRef.current?.getBoundingClientRect() ?? null
+        smallRect.current = rect
+        smallScroll.current = { x: window.scrollX, y: window.scrollY }
+        if (expandTimer.current) clearTimeout(expandTimer.current)
+
+        if (rect && !prefersReducedMotion()) {
+            setTheaterStyle(rectToFixedStyle(rect))
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    setTheaterStyle(getTheaterStyle(
+                        padding,
+                        aspect,
+                        `top ${THEATER_OPEN_MS}ms ${THEATER_OPEN_EASE}, left ${THEATER_OPEN_MS}ms ${THEATER_OPEN_EASE}, width ${THEATER_OPEN_MS}ms ${THEATER_OPEN_EASE}, height ${THEATER_OPEN_MS}ms ${THEATER_OPEN_EASE}`
+                    ))
+                })
+            })
+        } else {
+            setTheaterStyle(getTheaterStyle(padding, aspect))
+        }
+        setIsExpanded(true)
+    }, [padding, aspect, rootRef])
+
+    const openNativeFullscreen = useCallback((): boolean => {
         const video = videoRef.current as NativeFullscreenVideo | null
         if (!video) return false
+        stopNativeWait.current?.()
 
         const resetNativeControls = () => {
             if (document.fullscreenElement) return
@@ -620,43 +649,55 @@ function useTheaterMode({
             }
         } catch {
             resetNativeControls()
-            return false
+            // Loaded, broken or empty: the animated theater, as before
+            if (
+                video.readyState >= HTMLMediaElement.HAVE_METADATA ||
+                video.error ||
+                !video.getAttribute("src")
+            ) return false
+            // iPhone refuses system fullscreen for a video that has loaded
+            // nothing yet — and behind a thumbnail nothing loads before
+            // warm-up, so the button only widened the frame, with no video.
+            // Start playback in this tap instead (the tap also lifts
+            // Safari's "fullscreen needs a tap" rule) and go fullscreen as
+            // soon as the video knows its size; if it still refuses, the
+            // animated theater opens. Pausing or a failure calls it off.
+            let timer: ReturnType<typeof setTimeout> | null = null
+            const stop = () => {
+                if (timer) clearTimeout(timer)
+                video.removeEventListener("loadedmetadata", onReady)
+                video.removeEventListener("pause", stop)
+                video.removeEventListener("error", stop)
+                stopNativeWait.current = null
+            }
+            const onReady = () => {
+                stop()
+                if (!openNativeFullscreen()) openTheater()
+            }
+            video.addEventListener("loadedmetadata", onReady)
+            video.addEventListener("pause", stop)
+            video.addEventListener("error", stop)
+            // Too long a wait and the moment has passed — it plays in place
+            timer = setTimeout(stop, NATIVE_FULLSCREEN_WAIT_MS)
+            stopNativeWait.current = stop
+            video.play().catch(stop)
+            return true
         }
 
         resetNativeControls()
         return false
-    }, [videoRef])
+    }, [videoRef, openTheater])
 
     const toggleExpand = useCallback((e: ReactMouseEvent<HTMLButtonElement>) => {
         e.stopPropagation()
         onActivate()
         if (!isExpanded) {
             if (shouldUseNativeMobileFullscreen() && openNativeFullscreen()) return
-
-            const rect = rootRef.current?.getBoundingClientRect() ?? null
-            smallRect.current = rect
-            smallScroll.current = { x: window.scrollX, y: window.scrollY }
-            if (expandTimer.current) clearTimeout(expandTimer.current)
-
-            if (rect && !prefersReducedMotion()) {
-                setTheaterStyle(rectToFixedStyle(rect))
-                requestAnimationFrame(() => {
-                    requestAnimationFrame(() => {
-                        setTheaterStyle(getTheaterStyle(
-                            padding,
-                            aspect,
-                            `top ${THEATER_OPEN_MS}ms ${THEATER_OPEN_EASE}, left ${THEATER_OPEN_MS}ms ${THEATER_OPEN_EASE}, width ${THEATER_OPEN_MS}ms ${THEATER_OPEN_EASE}, height ${THEATER_OPEN_MS}ms ${THEATER_OPEN_EASE}`
-                        ))
-                    })
-                })
-            } else {
-                setTheaterStyle(getTheaterStyle(padding, aspect))
-            }
-            setIsExpanded(true)
+            openTheater()
         } else {
             closeExpand()
         }
-    }, [isExpanded, padding, aspect, rootRef, onActivate, openNativeFullscreen, closeExpand])
+    }, [isExpanded, onActivate, openNativeFullscreen, openTheater, closeExpand])
 
     return { isExpanded, theaterStyle, toggleExpand }
 }
