@@ -689,6 +689,11 @@ export default function TheaterVideoPlayer({
     const [isMuted, setIsMuted] = useState(mutedByDefault)
     const [durationSeconds, setDurationSeconds] = useState(0)
     const [currentTime, setCurrentTime] = useState(0)
+    // A reported position earlier than the last one is a jump back — a loop
+    // starting over, a seek. The bar snaps there instead of sweeping back
+    // across the whole track (it did on every loop).
+    const reportedTimeRef = useRef(0)
+    const [jumpedBack, setJumpedBack] = useState(false)
     const [isScrubbing, setIsScrubbing] = useState(false)
     const [hoverTime, setHoverTime] = useState<number | null>(null)
     const [hoverPercent, setHoverPercent] = useState(0)
@@ -910,6 +915,8 @@ export default function TheaterVideoPlayer({
         setIsWaiting(false)
         setIsPlaying(false)
         setCurrentTime(0)
+        reportedTimeRef.current = 0
+        setJumpedBack(false)
         setDurationSeconds(0)
         setHoverTime(null)
         setHoverPercent(0)
@@ -1018,6 +1025,8 @@ export default function TheaterVideoPlayer({
         if (!v || durationSeconds <= 0) return
         const nextTime = Math.min(durationSeconds, Math.max(0, ratio * durationSeconds))
         v.currentTime = nextTime
+        // Our own seek glides (or follows the finger) — not a jump to snap
+        reportedTimeRef.current = nextTime
         setCurrentTime(nextTime)
     }
 
@@ -1324,7 +1333,7 @@ export default function TheaterVideoPlayer({
     // Playing, a 0.12 s glide stood still for the rest of each 0.25 s gap
     // (half the frames frozen). The fill and the handle share one motion —
     // the handle used to glide differently from the fill on a paused seek.
-    const progressMotion = isScrubbing || currentTime < 0.15
+    const progressMotion = isScrubbing || jumpedBack || currentTime < 0.15
         ? null
         : isPlaying ? PROGRESS_PLAYING_GLIDE : "0.2s ease"
     const progressLabel = durationSeconds > 0
@@ -1408,6 +1417,8 @@ export default function TheaterVideoPlayer({
                     onTimeUpdate={() => {
                         const v = videoRef.current
                         if (!v) return
+                        setJumpedBack(v.currentTime < reportedTimeRef.current)
+                        reportedTimeRef.current = v.currentTime
                         setCurrentTime(v.currentTime)
                         // Time moving on means frames are being drawn —
                         // covers players no frame callback reports on
