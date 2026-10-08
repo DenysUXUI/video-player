@@ -145,6 +145,37 @@ function IconCollapse() {
     )
 }
 
+function IconSpinner({ slow }: { slow: boolean }) {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <circle cx="12" cy="12" r="9" opacity="0.25" />
+            <path d="M21 12a9 9 0 0 0-9-9">
+                <animateTransform
+                    attributeName="transform"
+                    type="rotate"
+                    from="0 12 12"
+                    to="360 12 12"
+                    dur={slow ? "2s" : "0.8s"}
+                    repeatCount="indefinite"
+                />
+            </path>
+        </svg>
+    )
+}
+
+// Read by screen readers, invisible on screen
+const visuallyHiddenStyle: CSSProperties = {
+    position: "absolute",
+    width: 1,
+    height: 1,
+    margin: -1,
+    padding: 0,
+    border: 0,
+    overflow: "hidden",
+    clip: "rect(0 0 0 0)",
+    whiteSpace: "nowrap",
+}
+
 const controlIconStyle: CSSProperties = {
     position: "absolute",
     inset: 0,
@@ -193,6 +224,8 @@ const TOUCH_WARM_UP_THRESHOLDS = Array.from({ length: 21 }, (_, i) => i / 20)
 // A cropped thumbnail asks for a sharper copy as soon as the first one
 // arrives — the request is under way well within this long
 const THUMB_RECHECK_MS = 100
+// A wait shorter than this passes without a spinner flashing up
+const LOADING_SPINNER_DELAY_MS = 300
 
 type NativeFullscreenVideo = HTMLVideoElement & {
     webkitEnterFullscreen?: () => void
@@ -668,6 +701,20 @@ export default function TheaterVideoPlayer({
     // Playback position when "playing" arrived — once it moves on, frames
     // are being drawn even if no frame callback reports it
     const playingFromRef = useRef<number | null>(null)
+    // Playback should be running but the video has no data yet (cold start,
+    // a stall, a retry). Before, a frozen frame and the Pause icon were all
+    // a visitor saw — for several seconds on a slow connection.
+    const [isWaiting, setIsWaiting] = useState(false)
+    const [spinnerDue, setSpinnerDue] = useState(false)
+    useEffect(() => {
+        if (!isWaiting) return
+        const timer = setTimeout(() => setSpinnerDue(true), LOADING_SPINNER_DELAY_MS)
+        return () => {
+            clearTimeout(timer)
+            setSpinnerDue(false)
+        }
+    }, [isWaiting])
+    const showSpinner = isWaiting && spinnerDue
     const [loadError, setLoadError] = useState(false)
     const [warmedUp, setWarmedUp] = useState(false)
     const [thumbWidth, setThumbWidth] = useState(0)
@@ -845,6 +892,7 @@ export default function TheaterVideoPlayer({
         setLoadError(false)
         setFrameShown(false)
         playingFromRef.current = null
+        setIsWaiting(false)
         setIsPlaying(false)
         setCurrentTime(0)
         setDurationSeconds(0)
@@ -1361,13 +1409,21 @@ export default function TheaterVideoPlayer({
                             autoplayPendingRef.current = false
                             pausedOffscreenRef.current = false
                         }
+                        // Started without the data to go on (a cold start)
+                        if (videoRef.current && videoRef.current.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
+                            setIsWaiting(true)
+                        }
                         setIsPlaying(true)
                         scheduleHide()
+                    }}
+                    onWaiting={() => {
+                        if (videoRef.current && !videoRef.current.paused) setIsWaiting(true)
                     }}
                     // Playback has really started: the thumbnail goes once
                     // a frame is painted. requestVideoFrameCallback reports
                     // exactly that; without it the frame is up by the next paint.
                     onPlaying={() => {
+                        setIsWaiting(false)
                         const v = videoRef.current as FrameCallbackVideo | null
                         if (!v || frameShown) return
                         playingFromRef.current = v.currentTime
@@ -1382,8 +1438,8 @@ export default function TheaterVideoPlayer({
                         playingFromRef.current = null
                         setFrameShown(false)
                     }}
-                    onPause={() => { setIsPlaying(false); revealControls() }}
-                    onEnded={() => { setIsPlaying(false); revealControls() }}
+                    onPause={() => { setIsPlaying(false); setIsWaiting(false); revealControls() }}
+                    onEnded={() => { setIsPlaying(false); setIsWaiting(false); revealControls() }}
                     // Native fullscreen controls and media keys can mute/unmute
                     // behind our back — mirror the element so the icon stays truthful.
                     onVolumeChange={() => {
@@ -1398,6 +1454,7 @@ export default function TheaterVideoPlayer({
                     onError={() => {
                         setLoadError(true)
                         setIsPlaying(false)
+                        setIsWaiting(false)
                         revealControls()
                     }}
                 />
@@ -1430,6 +1487,42 @@ export default function TheaterVideoPlayer({
                         }}
                     />
                 )}
+
+                {/* Loading: a spinner in the look of the control buttons.
+                    The live region stays in place so screen readers hear it. */}
+                <div
+                    role="status"
+                    style={{
+                        position: "absolute",
+                        inset: 0,
+                        display: "grid",
+                        placeItems: "center",
+                        pointerEvents: "none",
+                        zIndex: 1,
+                    }}
+                >
+                    {showSpinner && (
+                        <span
+                            style={{
+                                display: "grid",
+                                placeItems: "center",
+                                width: controlButtonSize,
+                                height: controlButtonSize,
+                                borderRadius: controlButtonRadius,
+                                border: `${controlButtonBorderWidth}px solid ${controlButtonBorderColor}`,
+                                background: controlButtonColor,
+                                backdropFilter: `saturate(160%) blur(${controlButtonBlur}px)`,
+                                WebkitBackdropFilter: `saturate(160%) blur(${controlButtonBlur}px)`,
+                                boxSizing: "border-box",
+                                color: "white",
+                                lineHeight: 0,
+                            }}
+                        >
+                            <IconSpinner slow={prefersReducedMotion()} />
+                            <span style={visuallyHiddenStyle}>Loading video</span>
+                        </span>
+                    )}
+                </div>
 
                 {!hasSource && !thumbnailSrc && (
                     <div style={{
