@@ -417,6 +417,8 @@ function useTheaterMode({
     // still scroll, so the close animation must shift its target by the delta.
     const smallScroll = useRef<{ x: number; y: number } | null>(null)
     const nativeFsCleanup = useRef<(() => void) | null>(null)
+    // Stops listening for the end of the close animation
+    const stopCloseWait = useRef<(() => void) | null>(null)
     const [isExpanded, setIsExpanded] = useState(false)
     const [theaterStyle, setTheaterStyle] = useState<CSSProperties | null>(null)
 
@@ -424,6 +426,7 @@ function useTheaterMode({
     useEffect(() => () => {
         if (expandTimer.current) clearTimeout(expandTimer.current)
         if (nativeFsCleanup.current) nativeFsCleanup.current()
+        stopCloseWait.current?.()
     }, [])
 
     // While the frame is detached (open, plus both animations) it lives in the
@@ -462,6 +465,7 @@ function useTheaterMode({
 
     const closeExpand = useCallback(() => {
         if (expandTimer.current) clearTimeout(expandTimer.current)
+        stopCloseWait.current?.()
         const current = rootRef.current?.getBoundingClientRect()
         // Land on the placeholder: it holds the player's real spot, so it
         // already reflects any scroll, resize or rotation since opening —
@@ -481,21 +485,43 @@ function useTheaterMode({
             return
         }
 
+        const root = rootRef.current
+        const finish = () => {
+            stopCloseWait.current?.()
+            if (expandTimer.current) clearTimeout(expandTimer.current)
+            expandTimer.current = null
+            setIsExpanded(false)
+            setTheaterStyle(null)
+        }
+        // Until the glide starts: a background tab runs no frames at all
+        const timer = setTimeout(finish, THEATER_CLOSE_MS + 250)
+        expandTimer.current = timer
+
         setTheaterStyle(rectToFixedStyle(current))
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
+                // A newer close took over (Escape pressed again)
+                if (expandTimer.current !== timer) return
                 setTheaterStyle(rectToFixedStyle(
                     target,
                     `top ${THEATER_CLOSE_MS}ms ${THEATER_CLOSE_EASE}, left ${THEATER_CLOSE_MS}ms ${THEATER_CLOSE_EASE}, width ${THEATER_CLOSE_MS}ms ${THEATER_CLOSE_EASE}, height ${THEATER_CLOSE_MS}ms ${THEATER_CLOSE_EASE}`
                 ))
+                // Settle when the glide really ends. A timer counted from the
+                // call started two frames before the glide did, so it cut the
+                // last 3–5 px short and the frame jumped into place.
+                const onEnd = (e: TransitionEvent) => {
+                    if (e.target === root && /^(top|left|width|height)$/.test(e.propertyName)) finish()
+                }
+                root?.addEventListener("transitionend", onEnd)
+                stopCloseWait.current = () => {
+                    root?.removeEventListener("transitionend", onEnd)
+                    stopCloseWait.current = null
+                }
+                // Already in place: nothing glides, no event comes
+                clearTimeout(timer)
+                expandTimer.current = setTimeout(finish, THEATER_CLOSE_MS + 50)
             })
         })
-
-        expandTimer.current = setTimeout(() => {
-            setIsExpanded(false)
-            setTheaterStyle(null)
-            expandTimer.current = null
-        }, THEATER_CLOSE_MS + 30)
     }, [rootRef, placeholderRef])
 
     // Theater mode keyboard handling: Escape closes; Tab/Shift+Tab cycle focus
