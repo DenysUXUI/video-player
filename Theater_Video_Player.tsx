@@ -791,6 +791,10 @@ export default function TheaterVideoPlayer({
     const inViewRef = useRef<boolean | null>(null) // null until first report
     const autoplayPendingRef = useRef(false)
     const pausedOffscreenRef = useRef(false)
+    // A pause and resume made here for scrolling aren't the visitor's: with
+    // Auto Hide they leave the controls as they were — before, the controls
+    // flashed up for 2 s every time an autoplay video came back on screen
+    const resumingRef = useRef(false)
 
     const tryAutoplay = useCallback(() => {
         const v = videoRef.current
@@ -840,7 +844,14 @@ export default function TheaterVideoPlayer({
             if (entry.isIntersecting) {
                 if (pausedOffscreenRef.current) {
                     pausedOffscreenRef.current = false
-                    if (v.paused) v.play().catch(() => {})
+                    if (v.paused) {
+                        resumingRef.current = true
+                        v.play().catch(() => {
+                            // Stays paused, so the controls must show
+                            resumingRef.current = false
+                            revealControls()
+                        })
+                    }
                 }
                 tryAutoplay()
                 return
@@ -1409,12 +1420,15 @@ export default function TheaterVideoPlayer({
                             autoplayPendingRef.current = false
                             pausedOffscreenRef.current = false
                         }
+                        const resumed = resumingRef.current
+                        resumingRef.current = false
                         // Started without the data to go on (a cold start)
                         if (videoRef.current && videoRef.current.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
                             setIsWaiting(true)
                         }
                         setIsPlaying(true)
-                        scheduleHide()
+                        // Back on screen with the controls hidden: keep them so
+                        if (!(resumed && !controlsVisible)) scheduleHide()
                     }}
                     onWaiting={() => {
                         if (videoRef.current && !videoRef.current.paused) setIsWaiting(true)
@@ -1438,7 +1452,12 @@ export default function TheaterVideoPlayer({
                         playingFromRef.current = null
                         setFrameShown(false)
                     }}
-                    onPause={() => { setIsPlaying(false); setIsWaiting(false); revealControls() }}
+                    onPause={() => {
+                        setIsPlaying(false)
+                        setIsWaiting(false)
+                        // Paused for scrolling out of view: nobody is looking
+                        if (!pausedOffscreenRef.current) revealControls()
+                    }}
                     onEnded={() => { setIsPlaying(false); setIsWaiting(false); revealControls() }}
                     // Native fullscreen controls and media keys can mute/unmute
                     // behind our back — mirror the element so the icon stays truthful.
