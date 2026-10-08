@@ -1552,7 +1552,6 @@ export default function TheaterVideoPlayer({
 
                 {/* Controls row overlays the video, so outer padding stays even on all sides. */}
                 <div
-                    aria-hidden={!controlsAreVisible}
                     onFocus={(e) => {
                         if (!isKeyboardFocus(e.target)) return
                         focusWithinControlsRef.current = true
@@ -1571,13 +1570,12 @@ export default function TheaterVideoPlayer({
                         display: "flex",
                         alignItems: "center",
                         gap: 8,
+                        // Hidden controls only fade out: they stay in the tab
+                        // order and for screen readers, so an autoplaying video
+                        // can always be paused (WCAG 2.2.2). Tabbing in brings
+                        // them back.
                         opacity: barAlpha,
-                        // visibility removes the row from tab order + a11y tree;
-                        // delay the flip until the fade-out finishes
-                        visibility: controlsAreVisible ? "visible" : "hidden",
-                        transition: controlsAreVisible
-                            ? "opacity 0.3s, visibility 0s linear 0s"
-                            : "opacity 0.3s, visibility 0s linear 0.3s",
+                        transition: "opacity 0.3s",
                         zIndex: 2,
                         pointerEvents: controlsAreVisible ? "auto" : "none",
                     }}
