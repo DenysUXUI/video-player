@@ -1385,6 +1385,14 @@ export default function TheaterVideoPlayer({
     const measuresThumb = !hydrated && typeof ResizeObserver !== "undefined"
     // Width ÷ height of the picture, known once a variant has loaded
     const thumbAspectRef = useRef(0)
+    // While playback gets going the thumbnail only stands in until the first
+    // frame, so it asks for no sharper copy: that download took bandwidth
+    // from the video start (a cropped thumbnail, autoplay, theater opened
+    // right after Play) and delayed it by 1-4 s on a slow line
+    const thumbFrozenRef = useRef(false)
+    useIsomorphicLayoutEffect(() => {
+        thumbFrozenRef.current = isPlaying
+    }, [isPlaying])
     const measureThumb = useCallback(() => {
         const img = thumbRef.current
         if (!img) return
@@ -1398,7 +1406,7 @@ export default function TheaterVideoPlayer({
         // player), so it is drawn wider than the frame — size for that
         const aspect = thumbAspectRef.current
         const drawn = aspect > 0 && h * aspect > w * 1.02 ? Math.ceil(h * aspect) : w
-        if (drawn > 0) setThumbWidth((prev) => Math.max(prev, drawn))
+        if (drawn > 0) setThumbWidth((prev) => (prev > 0 && thumbFrozenRef.current ? prev : Math.max(prev, drawn)))
     }, [])
     useIsomorphicLayoutEffect(() => {
         const img = thumbRef.current
