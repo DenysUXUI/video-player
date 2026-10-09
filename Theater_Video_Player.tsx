@@ -1644,7 +1644,9 @@ export default function TheaterVideoPlayer({
                         zIndex: 1,
                     }}
                 >
-                    {showSpinner && (
+                    {/* No video, nothing to wait for: Play on an empty player
+                        would have spun forever */}
+                    {showSpinner && hasSource && (
                         <span
                             style={{
                                 display: "grid",
