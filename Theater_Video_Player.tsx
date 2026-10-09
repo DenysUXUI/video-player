@@ -879,6 +879,11 @@ export default function TheaterVideoPlayer({
     // Auto Hide they leave the controls as they were — before, the controls
     // flashed up for 2 s every time an autoplay video came back on screen
     const resumingRef = useRef(false)
+    // Pauses made here whose "pause" event hasn't arrived yet. On a busy page
+    // that event can come after the player is already back on screen and
+    // resumed, so a flag cleared by the resume missed it and the controls
+    // flashed up anyway.
+    const ownPausesRef = useRef(0)
 
     const tryAutoplay = useCallback(() => {
         const v = videoRef.current
@@ -950,6 +955,7 @@ export default function TheaterVideoPlayer({
                 document.pictureInPictureElement === v
             ) return
             pausedOffscreenRef.current = true
+            ownPausesRef.current += 1
             v.pause()
         })
         observer.observe(v)
@@ -993,6 +999,7 @@ export default function TheaterVideoPlayer({
         reportedTimeRef.current = 0
         setJumpedBack(false)
         setPendingSeek(null)
+        ownPausesRef.current = 0
         setDurationSeconds(0)
         setHoverTime(null)
         setHoverPercent(0)
@@ -1585,7 +1592,11 @@ export default function TheaterVideoPlayer({
                         setIsPlaying(false)
                         setIsWaiting(false)
                         // Paused for scrolling out of view: nobody is looking
-                        if (!pausedOffscreenRef.current) revealControls()
+                        if (ownPausesRef.current > 0) {
+                            ownPausesRef.current -= 1
+                            return
+                        }
+                        revealControls()
                     }}
                     onEnded={() => { setIsPlaying(false); setIsWaiting(false); revealControls() }}
                     // Native fullscreen controls and media keys can mute/unmute
