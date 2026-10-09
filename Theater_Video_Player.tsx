@@ -145,20 +145,24 @@ function IconCollapse() {
     )
 }
 
+// Turns from its first frame. An SVG <animateTransform> added after the page
+// has loaded stood still for its whole first cycle in Chrome — 0.8 s, longer
+// than most waits — so the spinner looked stuck.
 function IconSpinner({ slow }: { slow: boolean }) {
+    const ref = useRef<SVGSVGElement>(null)
+    useEffect(() => {
+        const el = ref.current
+        if (!el || typeof el.animate !== "function") return
+        const spin = el.animate(
+            [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
+            { duration: slow ? 2000 : 800, iterations: Infinity }
+        )
+        return () => spin.cancel()
+    }, [slow])
     return (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        <svg ref={ref} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <circle cx="12" cy="12" r="9" opacity="0.25" />
-            <path d="M21 12a9 9 0 0 0-9-9">
-                <animateTransform
-                    attributeName="transform"
-                    type="rotate"
-                    from="0 12 12"
-                    to="360 12 12"
-                    dur={slow ? "2s" : "0.8s"}
-                    repeatCount="indefinite"
-                />
-            </path>
+            <path d="M21 12a9 9 0 0 0-9-9" />
         </svg>
     )
 }
