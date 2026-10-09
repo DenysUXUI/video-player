@@ -520,17 +520,30 @@ function useTheaterMode({
                 // Settle when the glide really ends. A timer counted from the
                 // call started two frames before the glide did, so it cut the
                 // last 3–5 px short and the frame jumped into place.
+                const isGlide = (e: TransitionEvent) =>
+                    e.target === root && /^(top|left|width|height)$/.test(e.propertyName)
                 const onEnd = (e: TransitionEvent) => {
-                    if (e.target === root && /^(top|left|width|height)$/.test(e.propertyName)) finish()
+                    if (isGlide(e)) finish()
+                }
+                // The fallback counts from when the glide really starts: on a
+                // busy page that can be well after this frame, and a timer
+                // armed here cut the glide short again
+                const onRun = (e: TransitionEvent) => {
+                    if (!isGlide(e)) return
+                    root?.removeEventListener("transitionrun", onRun)
+                    if (expandTimer.current) clearTimeout(expandTimer.current)
+                    expandTimer.current = setTimeout(finish, THEATER_CLOSE_MS + 50)
                 }
                 root?.addEventListener("transitionend", onEnd)
+                root?.addEventListener("transitionrun", onRun)
                 stopCloseWait.current = () => {
                     root?.removeEventListener("transitionend", onEnd)
+                    root?.removeEventListener("transitionrun", onRun)
                     stopCloseWait.current = null
                 }
-                // Already in place: nothing glides, no event comes
+                // Already in place: nothing glides and no event comes
                 clearTimeout(timer)
-                expandTimer.current = setTimeout(finish, THEATER_CLOSE_MS + 50)
+                expandTimer.current = setTimeout(finish, THEATER_CLOSE_MS + 250)
             })
         })
     }, [rootRef, placeholderRef])
