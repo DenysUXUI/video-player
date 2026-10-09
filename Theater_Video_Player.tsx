@@ -1123,7 +1123,10 @@ export default function TheaterVideoPlayer({
         // very tap starts it. The tap used to be lost (only a second one
         // seeked); now the spot is kept until the length is known.
         const v = videoRef.current
-        const waitsForLength = durationSeconds <= 0 && !!v && !!v.getAttribute("src") && !v.error
+        // Only while the length is still coming: a stream whose length is
+        // known to be endless never sends one, and the spot would hang forever
+        const waitsForLength = durationSeconds <= 0 && !!v && !!v.getAttribute("src") && !v.error &&
+            v.readyState < HTMLMediaElement.HAVE_METADATA
         if (durationSeconds <= 0 && !waitsForLength) return
         if (hideTimer.current) clearTimeout(hideTimer.current)
         e.currentTarget.setPointerCapture?.(e.pointerId)
@@ -1588,6 +1591,9 @@ export default function TheaterVideoPlayer({
                         setLoadError(true)
                         setIsPlaying(false)
                         setIsWaiting(false)
+                        // A spot tapped before the failure: the bar goes back to
+                        // the start, and a retry starts there too
+                        setPendingSeek(null)
                         revealControls()
                     }}
                 />
