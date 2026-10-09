@@ -213,6 +213,8 @@ const PROGRESS_THUMB_RADIUS = 4
 // little longer than that gap is picked up by the next report before it
 // ends, so the bar moves at an even speed instead of in jerks.
 const PROGRESS_PLAYING_GLIDE = "0.3s linear"
+// A reported position this much earlier than the last one is a jump back
+const PROGRESS_JUMP_BACK_S = 0.1
 const THEATER_DESKTOP_MARGIN = 48
 const THEATER_TABLET_MARGIN = 24
 const THEATER_MOBILE_MARGIN = 20
@@ -1095,8 +1097,10 @@ export default function TheaterVideoPlayer({
         if (!v || durationSeconds <= 0) return
         const nextTime = Math.min(durationSeconds, Math.max(0, ratio * durationSeconds))
         v.currentTime = nextTime
-        // Our own seek glides (or follows the finger) — not a jump to snap
-        reportedTimeRef.current = nextTime
+        // Our own seek glides (or follows the finger) — not a jump to snap.
+        // Read the position back: Chrome keeps it to the microsecond, so a
+        // stored 7.7584001 would make the reported 7.7584 look like a jump.
+        reportedTimeRef.current = v.currentTime
         setCurrentTime(nextTime)
     }
 
@@ -1507,7 +1511,9 @@ export default function TheaterVideoPlayer({
                     onTimeUpdate={() => {
                         const v = videoRef.current
                         if (!v) return
-                        setJumpedBack(v.currentTime < reportedTimeRef.current)
+                        // A jump is a real step back (a loop restart is the whole
+                        // video) — not a browser rounding a seek to a frame
+                        setJumpedBack(v.currentTime < reportedTimeRef.current - PROGRESS_JUMP_BACK_S)
                         reportedTimeRef.current = v.currentTime
                         setCurrentTime(v.currentTime)
                         // Time moving on means frames are being drawn —
