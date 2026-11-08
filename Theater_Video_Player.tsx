@@ -10,7 +10,7 @@
  * License: MIT
  */
 
-import { addPropertyControls, ControlType, RenderTarget, useIsStaticRenderer } from "framer"
+import { addPropertyControls, ControlType, RenderTarget, useIsStaticRenderer, type ObjectPropertyControlDescription, type PropertyControls } from "framer"
 import {
     useState,
     useRef,
@@ -2034,14 +2034,193 @@ export default function TheaterVideoPlayer(props: Props) {
     )
 }
 
-// Property controls are grouped logically in the panel by listing order:
-// 1) Source — what video is shown
-// 2) Frame size — aspect + fit
-// 3) Playback — behavior toggles
-// 4) Frame look — glass-frame styling
-// 5) Controls — button + progress styling
+// —— Property controls ——
+// The video and its thumbnail stay on top in both panels. Each setting below is
+// written once and shown in one of two ways, see "Settings under two names".
+type ControlsBlock = Record<string, ObjectPropertyControlDescription>
+
+const FRAME_SIZE_CONTROLS: ControlsBlock = {
+    aspectRatio: {
+        type: ControlType.Enum,
+        title: "Aspect",
+        options: ["16:9", "9:16", "1:1", "4:5"],
+        optionTitles: ["16:9", "9:16", "1:1", "4:5"],
+        defaultValue: MOVED_SETTING_DEFAULTS.aspectRatio,
+        displaySegmentedControl: true,
+        description: "Video frame ratio. Use 9:16 for vertical, 1:1 for square.",
+    },
+    objectFit: {
+        type: ControlType.Enum,
+        title: "Fit",
+        options: ["cover", "contain"],
+        optionTitles: ["Cover", "Contain"],
+        defaultValue: MOVED_SETTING_DEFAULTS.objectFit,
+        displaySegmentedControl: true,
+        description: "How the video fills its frame. Theater mode always uses Contain.",
+    },
+}
+
+const PLAYBACK_CONTROLS: ControlsBlock = {
+    loop: {
+        type: ControlType.Boolean,
+        title: "Loop",
+        defaultValue: MOVED_SETTING_DEFAULTS.loop,
+        enabledTitle: "On",
+        disabledTitle: "Off",
+    },
+    mutedByDefault: {
+        type: ControlType.Boolean,
+        title: "Muted",
+        defaultValue: MOVED_SETTING_DEFAULTS.mutedByDefault,
+        enabledTitle: "On",
+        disabledTitle: "Off",
+        description: "Sound when a visitor presses Play. Autoplay always starts muted.",
+    },
+    autoplay: {
+        type: ControlType.Boolean,
+        title: "Autoplay",
+        defaultValue: MOVED_SETTING_DEFAULTS.autoplay,
+        enabledTitle: "On",
+        disabledTitle: "Off",
+        description: "Plays muted while the player is on screen.",
+    },
+    autoHideControls: {
+        type: ControlType.Boolean,
+        title: "Auto Hide",
+        defaultValue: MOVED_SETTING_DEFAULTS.autoHideControls,
+        enabledTitle: "On",
+        disabledTitle: "Off",
+        description: "Hide controls after 2.2s of inactivity while playing.",
+    },
+}
+
+const FRAME_LOOK_CONTROLS: ControlsBlock = {
+    padding: {
+        type: ControlType.Number,
+        title: "Padding",
+        min: 0,
+        max: 24,
+        step: 1,
+        defaultValue: MOVED_SETTING_DEFAULTS.padding,
+        unit: "px",
+        description: "Inner space of the glass frame around the video.",
+    },
+    borderRadius: {
+        type: ControlType.Number,
+        title: "Border Radius",
+        min: 0,
+        max: 40,
+        step: 1,
+        defaultValue: MOVED_SETTING_DEFAULTS.borderRadius,
+        unit: "px",
+    },
+    borderOpacity: {
+        type: ControlType.Number,
+        title: "Border Opacity",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        defaultValue: MOVED_SETTING_DEFAULTS.borderOpacity,
+        description: "Strength of the frame edge line: 0 (none) to 1 (solid).",
+    },
+    backgroundColor: {
+        type: ControlType.Color,
+        title: "BG Color",
+        defaultValue: MOVED_SETTING_DEFAULTS.backgroundColor,
+        description: "Tint behind the glass frame. Lower alpha = more transparent.",
+    },
+    blurAmount: {
+        type: ControlType.Number,
+        title: "Blur",
+        min: 0,
+        max: 40,
+        step: 1,
+        defaultValue: MOVED_SETTING_DEFAULTS.blurAmount,
+        unit: "px",
+        description: "Backdrop blur for the glass frame.",
+    },
+}
+
+const BUTTON_CONTROLS: ControlsBlock = {
+    controlButtonSize: {
+        type: ControlType.Number,
+        title: "Button Size",
+        min: 24,
+        max: 64,
+        step: 1,
+        defaultValue: MOVED_SETTING_DEFAULTS.controlButtonSize,
+        unit: "px",
+        description: "Size of the play, mute, and theater buttons.",
+    },
+    controlButtonRadius: {
+        type: ControlType.Number,
+        title: "Button Radius",
+        min: 0,
+        max: 32,
+        step: 1,
+        defaultValue: MOVED_SETTING_DEFAULTS.controlButtonRadius,
+        unit: "px",
+        description: "Corner radius for control buttons.",
+    },
+    controlButtonColor: {
+        type: ControlType.Color,
+        title: "Button Color",
+        defaultValue: MOVED_SETTING_DEFAULTS.controlButtonColor,
+        description: "Background fill of each control button.",
+    },
+    controlButtonBorderColor: {
+        type: ControlType.Color,
+        title: "Stroke Color",
+        defaultValue: MOVED_SETTING_DEFAULTS.controlButtonBorderColor,
+        description: "Border color around each control button.",
+    },
+    controlButtonBorderWidth: {
+        type: ControlType.Number,
+        title: "Stroke Width",
+        min: 0,
+        max: 3,
+        step: 0.5,
+        defaultValue: MOVED_SETTING_DEFAULTS.controlButtonBorderWidth,
+        unit: "px",
+        description: "Border thickness around each control button.",
+    },
+    controlButtonBlur: {
+        type: ControlType.Number,
+        title: "Button Blur",
+        min: 0,
+        max: 20,
+        step: 1,
+        defaultValue: MOVED_SETTING_DEFAULTS.controlButtonBlur,
+        unit: "px",
+        description: "Backdrop blur strength behind each control button.",
+    },
+    progressColor: {
+        type: ControlType.Color,
+        title: "Progress Color",
+        defaultValue: MOVED_SETTING_DEFAULTS.progressColor,
+        description: "Color of the played portion of the progress bar.",
+    },
+}
+
+function showsOldPanel(props: Partial<Props>): boolean {
+    return MOVED_SETTINGS.some((name) => isChangedSetting(name, props[name]))
+}
+
+function showsGroups(props: Partial<Props>): boolean {
+    return !showsOldPanel(props)
+}
+
+// The old panel, row by row, in the order buyers already know
+const OLD_PANEL_CONTROLS = Object.fromEntries(
+    Object.entries({
+        ...FRAME_SIZE_CONTROLS,
+        ...PLAYBACK_CONTROLS,
+        ...FRAME_LOOK_CONTROLS,
+        ...BUTTON_CONTROLS,
+    }).map(([name, control]) => [name, { ...control, hidden: showsGroups }])
+) as PropertyControls<Props>
+
 addPropertyControls(TheaterVideoPlayer, {
-    // —— Source ——
     sourceType: {
         type: ControlType.Enum,
         title: "Source",
@@ -2054,172 +2233,39 @@ addPropertyControls(TheaterVideoPlayer, {
         type: ControlType.String,
         title: "Video URL",
         placeholder: "https://your-cdn.com/video.mp4",
-        hidden: (props: Props) => props.sourceType !== "url",
+        hidden: (props) => props.sourceType !== "url",
     },
     videoFile: {
         type: ControlType.File,
         title: "File",
         allowedFileTypes: ["mp4", "webm", "mov", "m4v", "ogv"],
-        hidden: (props: Props) => props.sourceType !== "upload",
+        hidden: (props) => props.sourceType !== "upload",
     },
     thumbnail: {
         type: ControlType.ResponsiveImage,
         title: "Thumbnail",
         description: "Shown before the video first plays.",
     },
-    // —— Frame size ——
-    aspectRatio: {
-        type: ControlType.Enum,
-        title: "Aspect",
-        options: ["16:9", "9:16", "1:1", "4:5"],
-        optionTitles: ["16:9", "9:16", "1:1", "4:5"],
-        defaultValue: "16:9",
-        displaySegmentedControl: true,
-        description: "Video frame ratio. Use 9:16 for vertical, 1:1 for square.",
+    ...OLD_PANEL_CONTROLS,
+    frameProps: {
+        type: ControlType.Object,
+        title: "Frame",
+        buttonTitle: "Edit",
+        hidden: showsOldPanel,
+        controls: { ...FRAME_SIZE_CONTROLS, ...FRAME_LOOK_CONTROLS },
     },
-    objectFit: {
-        type: ControlType.Enum,
-        title: "Fit",
-        options: ["cover", "contain"],
-        optionTitles: ["Cover", "Contain"],
-        defaultValue: "cover",
-        displaySegmentedControl: true,
-        description: "How the video fills its frame. Theater mode always uses Contain.",
+    playbackProps: {
+        type: ControlType.Object,
+        title: "Playback",
+        buttonTitle: "Edit",
+        hidden: showsOldPanel,
+        controls: PLAYBACK_CONTROLS,
     },
-    // —— Playback ——
-    loop: {
-        type: ControlType.Boolean,
-        title: "Loop",
-        defaultValue: true,
-        enabledTitle: "On",
-        disabledTitle: "Off",
-    },
-    mutedByDefault: {
-        type: ControlType.Boolean,
-        title: "Muted",
-        defaultValue: true,
-        enabledTitle: "On",
-        disabledTitle: "Off",
-        description: "Sound when a visitor presses Play. Autoplay always starts muted.",
-    },
-    autoplay: {
-        type: ControlType.Boolean,
-        title: "Autoplay",
-        defaultValue: false,
-        enabledTitle: "On",
-        disabledTitle: "Off",
-        description: "Plays muted while the player is on screen.",
-    },
-    autoHideControls: {
-        type: ControlType.Boolean,
-        title: "Auto Hide",
-        defaultValue: false,
-        enabledTitle: "On",
-        disabledTitle: "Off",
-        description: "Hide controls after 2.2s of inactivity while playing.",
-    },
-    // —— Frame look ——
-    padding: {
-        type: ControlType.Number,
-        title: "Padding",
-        min: 0,
-        max: 24,
-        step: 1,
-        defaultValue: 8,
-        unit: "px",
-        description: "Inner space of the glass frame around the video.",
-    },
-    borderRadius: {
-        type: ControlType.Number,
-        title: "Border Radius",
-        min: 0,
-        max: 40,
-        step: 1,
-        defaultValue: 16,
-        unit: "px",
-    },
-    borderOpacity: {
-        type: ControlType.Number,
-        title: "Border Opacity",
-        min: 0,
-        max: 1,
-        step: 0.05,
-        defaultValue: 0.3,
-        description: "Strength of the frame edge line: 0 (none) to 1 (solid).",
-    },
-    backgroundColor: {
-        type: ControlType.Color,
-        title: "BG Color",
-        defaultValue: "rgba(255, 255, 255, 0.12)",
-        description: "Tint behind the glass frame. Lower alpha = more transparent.",
-    },
-    blurAmount: {
-        type: ControlType.Number,
-        title: "Blur",
-        min: 0,
-        max: 40,
-        step: 1,
-        defaultValue: 20,
-        unit: "px",
-        description: "Backdrop blur for the glass frame.",
-    },
-    // —— Controls ——
-    controlButtonSize: {
-        type: ControlType.Number,
-        title: "Button Size",
-        min: 24,
-        max: 64,
-        step: 1,
-        defaultValue: DEFAULT_CONTROL_BUTTON_SIZE,
-        unit: "px",
-        description: "Size of the play, mute, and theater buttons.",
-    },
-    controlButtonRadius: {
-        type: ControlType.Number,
-        title: "Button Radius",
-        min: 0,
-        max: 32,
-        step: 1,
-        defaultValue: DEFAULT_CONTROL_BUTTON_RADIUS,
-        unit: "px",
-        description: "Corner radius for control buttons.",
-    },
-    controlButtonColor: {
-        type: ControlType.Color,
-        title: "Button Color",
-        defaultValue: "rgba(255, 255, 255, 0.1)",
-        description: "Background fill of each control button.",
-    },
-    controlButtonBorderColor: {
-        type: ControlType.Color,
-        title: "Stroke Color",
-        defaultValue: "rgba(255, 255, 255, 0.16)",
-        description: "Border color around each control button.",
-    },
-    controlButtonBorderWidth: {
-        type: ControlType.Number,
-        title: "Stroke Width",
-        min: 0,
-        max: 3,
-        step: 0.5,
-        defaultValue: 1,
-        unit: "px",
-        description: "Border thickness around each control button.",
-    },
-    controlButtonBlur: {
-        type: ControlType.Number,
-        title: "Button Blur",
-        min: 0,
-        max: 20,
-        step: 1,
-        defaultValue: DEFAULT_CONTROL_BUTTON_BLUR,
-        unit: "px",
-        description: "Backdrop blur strength behind each control button.",
-    },
-    progressColor: {
-        type: ControlType.Color,
-        title: "Progress Color",
-        defaultValue: "#FFFFFF",
-        description: "Color of the played portion of the progress bar.",
+    controlsProps: {
+        type: ControlType.Object,
+        title: "Controls",
+        buttonTitle: "Edit",
+        hidden: showsOldPanel,
+        controls: BUTTON_CONTROLS,
     },
 })
