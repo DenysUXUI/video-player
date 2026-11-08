@@ -33,22 +33,24 @@ export interface ThumbnailImage {
     alt?: string
 }
 
-export interface Props {
-    sourceType: "url" | "upload"
-    videoUrl: string
-    videoFile: string
-    thumbnail?: ThumbnailImage
+interface FrameSettings {
     aspectRatio: "16:9" | "9:16" | "1:1" | "4:5"
-    loop: boolean
-    mutedByDefault: boolean
     objectFit: "cover" | "contain"
-    autoplay: boolean
-    autoHideControls: boolean
     padding: number
     borderRadius: number
     borderOpacity: number
     backgroundColor: string
     blurAmount: number
+}
+
+interface PlaybackSettings {
+    loop: boolean
+    mutedByDefault: boolean
+    autoplay: boolean
+    autoHideControls: boolean
+}
+
+interface ControlsSettings {
     controlButtonSize: number
     controlButtonRadius: number
     controlButtonColor: string
@@ -56,6 +58,19 @@ export interface Props {
     controlButtonBorderWidth: number
     controlButtonBlur: number
     progressColor: string
+}
+
+type MovedSettings = FrameSettings & PlaybackSettings & ControlsSettings
+
+export interface Props extends MovedSettings {
+    sourceType: "url" | "upload"
+    videoUrl: string
+    videoFile: string
+    thumbnail?: ThumbnailImage
+    // The same settings inside the grouped panel. See readSettings.
+    frameProps?: Partial<FrameSettings>
+    playbackProps?: Partial<PlaybackSettings>
+    controlsProps?: Partial<ControlsSettings>
     style?: CSSProperties
 }
 
@@ -721,37 +736,115 @@ function useTheaterMode({
     return { isExpanded, theaterStyle, toggleExpand }
 }
 
+// —— Settings under two names ——
+// Framer stores a value under the name of its setting, so a value does not
+// follow a setting into a group: moving a setting would wipe what a buyer set.
+// That is why these 18 settings exist twice. The old flat names keep the old
+// values and show in the panel of a player that has one of them changed. The
+// groups (frameProps, playbackProps, controlsProps) show on every other player.
+// Never rename or remove an old name, and never change one of these defaults.
+const MOVED_SETTING_DEFAULTS: MovedSettings = {
+    aspectRatio: "16:9",
+    objectFit: "cover",
+    padding: 8,
+    borderRadius: 16,
+    borderOpacity: 0.3,
+    backgroundColor: "rgba(255, 255, 255, 0.12)",
+    blurAmount: 20,
+    loop: true,
+    mutedByDefault: true,
+    autoplay: false,
+    autoHideControls: false,
+    controlButtonSize: DEFAULT_CONTROL_BUTTON_SIZE,
+    controlButtonRadius: DEFAULT_CONTROL_BUTTON_RADIUS,
+    controlButtonColor: "rgba(255, 255, 255, 0.1)",
+    controlButtonBorderColor: "rgba(255, 255, 255, 0.16)",
+    controlButtonBorderWidth: 1,
+    controlButtonBlur: DEFAULT_CONTROL_BUTTON_BLUR,
+    progressColor: "#FFFFFF",
+}
+
+const MOVED_SETTINGS = Object.keys(MOVED_SETTING_DEFAULTS) as (keyof MovedSettings)[]
+
+// One spelling for one colour. An untouched colour comes as written in the code
+// (#FFFFFF) and a picked one in Framer's format (rgb(255, 255, 255)), and they
+// must not count as two values. Any other string comes back as it is.
+function colorKey(value: string): string {
+    const text = value.trim().toLowerCase()
+    const hex = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/.exec(text)
+    if (hex) {
+        const digits = hex[1].length <= 4 ? hex[1].replace(/./g, "$&$&") : hex[1]
+        const [r, g, b, a = 255] = (digits.match(/../g) ?? []).map((pair) => parseInt(pair, 16))
+        return [r, g, b, Math.round((a / 255) * 100) / 100].join()
+    }
+    const rgb = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:[\s,/]+([\d.]+)(%?))?\s*\)$/.exec(text)
+    if (rgb) {
+        const alpha = rgb[4] === undefined ? 1 : Number(rgb[4]) / (rgb[5] ? 100 : 1)
+        return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3]), Math.round(alpha * 100) / 100].join()
+    }
+    return text
+}
+
+function isChangedSetting(name: keyof MovedSettings, value: unknown): boolean {
+    const fallback = MOVED_SETTING_DEFAULTS[name]
+    if (value === undefined || value === fallback) return false
+    if (typeof value === "string" && typeof fallback === "string") {
+        return colorKey(value) !== colorKey(fallback)
+    }
+    return true
+}
+
+// A changed old value wins, then the group, then the default. The panel never
+// lets a buyer edit both names of one setting, so one of them is always at its
+// default. Reading setting by setting means a surprise in one (a site script
+// or a code override setting an old name) leaves the group values of the rest.
+function readSettings(props: Props): Props {
+    const groups: Partial<MovedSettings> = {
+        ...props.frameProps,
+        ...props.playbackProps,
+        ...props.controlsProps,
+    }
+    const settings: Record<string, unknown> = { ...props }
+    for (const name of MOVED_SETTINGS) {
+        if (!isChangedSetting(name, props[name])) {
+            settings[name] = groups[name] ?? MOVED_SETTING_DEFAULTS[name]
+        }
+    }
+    return settings as unknown as Props
+}
+
 /**
  * @framerSupportedLayoutWidth any-prefer-fixed
  * @framerSupportedLayoutHeight auto
  * @framerIntrinsicWidth 640
  * @framerIntrinsicHeight 360
  */
-export default function TheaterVideoPlayer({
-    sourceType = "url",
-    videoUrl = "",
-    videoFile = "",
-    thumbnail,
-    aspectRatio = "16:9",
-    loop = true,
-    mutedByDefault = true,
-    objectFit = "cover",
-    autoplay = false,
-    autoHideControls = false,
-    padding = 8,
-    borderRadius = 16,
-    borderOpacity = 0.3,
-    backgroundColor = "rgba(255, 255, 255, 0.12)",
-    blurAmount = 20,
-    controlButtonSize = DEFAULT_CONTROL_BUTTON_SIZE,
-    controlButtonRadius = DEFAULT_CONTROL_BUTTON_RADIUS,
-    controlButtonColor = "rgba(255, 255, 255, 0.1)",
-    controlButtonBorderColor = "rgba(255, 255, 255, 0.16)",
-    controlButtonBorderWidth = 1,
-    controlButtonBlur = DEFAULT_CONTROL_BUTTON_BLUR,
-    progressColor = "#FFFFFF",
-    style,
-}: Props) {
+export default function TheaterVideoPlayer(props: Props) {
+    const {
+        sourceType = "url",
+        videoUrl = "",
+        videoFile = "",
+        thumbnail,
+        aspectRatio,
+        loop,
+        mutedByDefault,
+        objectFit,
+        autoplay,
+        autoHideControls,
+        padding,
+        borderRadius,
+        borderOpacity,
+        backgroundColor,
+        blurAmount,
+        controlButtonSize,
+        controlButtonRadius,
+        controlButtonColor,
+        controlButtonBorderColor,
+        controlButtonBorderWidth,
+        controlButtonBlur,
+        progressColor,
+        style,
+    } = readSettings(props)
     const videoRef = useRef<HTMLVideoElement>(null)
     const thumbRef = useRef<HTMLImageElement>(null)
     const rootRef = useRef<HTMLDivElement>(null)
