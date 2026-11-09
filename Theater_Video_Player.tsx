@@ -2038,9 +2038,9 @@ export default function TheaterVideoPlayer(props: Props) {
 // —— Property controls ——
 // The video and its thumbnail stay on top in both panels. Each setting below is
 // written once and shown in one of two ways, see "Settings under two names".
-type ControlsBlock = Record<string, ObjectPropertyControlDescription>
+type ControlsBlock<Name extends string> = Record<Name, ObjectPropertyControlDescription>
 
-const FRAME_SIZE_CONTROLS: ControlsBlock = {
+const FRAME_SIZE_CONTROLS: ControlsBlock<"aspectRatio" | "objectFit"> = {
     aspectRatio: {
         type: ControlType.Enum,
         title: "Aspect",
@@ -2061,7 +2061,7 @@ const FRAME_SIZE_CONTROLS: ControlsBlock = {
     },
 }
 
-const PLAYBACK_CONTROLS: ControlsBlock = {
+const PLAYBACK_CONTROLS: ControlsBlock<keyof PlaybackSettings> = {
     loop: {
         type: ControlType.Boolean,
         title: "Loop",
@@ -2095,7 +2095,7 @@ const PLAYBACK_CONTROLS: ControlsBlock = {
     },
 }
 
-const FRAME_LOOK_CONTROLS: ControlsBlock = {
+const FRAME_LOOK_CONTROLS: ControlsBlock<Exclude<keyof FrameSettings, "aspectRatio" | "objectFit">> = {
     padding: {
         type: ControlType.Number,
         title: "Padding",
@@ -2142,7 +2142,7 @@ const FRAME_LOOK_CONTROLS: ControlsBlock = {
     },
 }
 
-const BUTTON_CONTROLS: ControlsBlock = {
+const BUTTON_CONTROLS: ControlsBlock<keyof ControlsSettings> = {
     controlButtonSize: {
         type: ControlType.Number,
         title: "Button Size",
