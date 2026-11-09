@@ -767,9 +767,10 @@ const MOVED_SETTING_DEFAULTS: MovedSettings = {
 const MOVED_SETTINGS = Object.keys(MOVED_SETTING_DEFAULTS) as (keyof MovedSettings)[]
 
 // One spelling for one colour. An untouched colour comes as written in the code
-// (#FFFFFF) and a picked one in Framer's format (rgb(255, 255, 255)), and they
-// must not count as two values. Two spellings match only when they give the same
-// colour on screen, 8 bits per channel. Any other string comes back as it is.
+// (#FFFFFF) on the canvas and in Framer's format (rgb(255, 255, 255)) on a published
+// page. Counted as two values, a group colour would lose to the old name on published
+// sites only. Two spellings match only when they give the same colour on screen,
+// 8 bits per channel. Any other string comes back as it is.
 function colorKey(value: string): string {
     const text = value.trim().toLowerCase()
     const hex = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/.exec(text)
@@ -795,10 +796,11 @@ function isChangedSetting(name: keyof MovedSettings, value: unknown): boolean {
     return true
 }
 
-// A changed old value wins, then the group, then the default. The panel never
-// lets a buyer edit both names of one setting, so one of them is always at its
-// default. Reading setting by setting means a surprise in one (a site script
-// or a code override setting an old name) leaves the group values of the rest.
+// A changed old value wins, then the group, then the default. One panel never
+// offers both names of a setting, but a breakpoint, a variant or a code override
+// can still set an old name over group values. Reading setting by setting means
+// that surprise in one leaves the group values of the rest, and a Phone keeps
+// following Desktop as it did with the flat settings.
 function readSettings(props: Props): Props {
     const groups: Partial<MovedSettings> = {
         ...props.frameProps,
