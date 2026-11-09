@@ -768,21 +768,22 @@ const MOVED_SETTINGS = Object.keys(MOVED_SETTING_DEFAULTS) as (keyof MovedSettin
 
 // One spelling for one colour. An untouched colour comes as written in the code
 // (#FFFFFF) and a picked one in Framer's format (rgb(255, 255, 255)), and they
-// must not count as two values. Any other string comes back as it is.
+// must not count as two values. Two spellings match only when they give the same
+// colour on screen, 8 bits per channel. Any other string comes back as it is.
 function colorKey(value: string): string {
     const text = value.trim().toLowerCase()
     const hex = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/.exec(text)
     if (hex) {
         const digits = hex[1].length <= 4 ? hex[1].replace(/./g, "$&$&") : hex[1]
         const [r, g, b, a = 255] = (digits.match(/../g) ?? []).map((pair) => parseInt(pair, 16))
-        return [r, g, b, Math.round((a / 255) * 100) / 100].join()
+        return [r, g, b, a].join()
     }
     const rgb = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:[\s,/]+([\d.]+)(%?))?\s*\)$/.exec(text)
     if (rgb) {
         const alpha = rgb[4] === undefined ? 1 : Number(rgb[4]) / (rgb[5] ? 100 : 1)
-        return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3]), Math.round(alpha * 100) / 100].join()
+        return [rgb[1], rgb[2], rgb[3], alpha * 255].map((n) => Math.round(Number(n))).join()
     }
-    return text
+    return value
 }
 
 function isChangedSetting(name: keyof MovedSettings, value: unknown): boolean {
