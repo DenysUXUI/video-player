@@ -224,9 +224,6 @@ function parseAspectRatio(ratio: "16:9" | "9:16" | "1:1" | "4:5"): number {
     }
 }
 
-const DEFAULT_CONTROL_BUTTON_SIZE = 38
-const DEFAULT_CONTROL_BUTTON_RADIUS = 12
-const DEFAULT_CONTROL_BUTTON_BLUR = 14
 const PROGRESS_TRACK_HEIGHT = 6
 // The unplayed part of the bar. Dark like the buttons, so the white played part
 // and the handle stand out on a white video too. Not a setting.
@@ -261,6 +258,9 @@ const TOUCH_WARM_UP_THRESHOLDS = Array.from({ length: 21 }, (_, i) => i / 20)
 const THUMB_RECHECK_MS = 100
 // A wait shorter than this passes without a spinner flashing up
 const LOADING_SPINNER_DELAY_MS = 300
+// Auto Hide: the controls fade this long after the last activity.
+// The Auto Hide description in the panel is built from it.
+const AUTO_HIDE_MS = 2200
 
 type NativeFullscreenVideo = HTMLVideoElement & {
     webkitEnterFullscreen?: () => void
@@ -756,12 +756,12 @@ const MOVED_SETTING_DEFAULTS: MovedSettings = {
     mutedByDefault: true,
     autoplay: false,
     autoHideControls: false,
-    controlButtonSize: DEFAULT_CONTROL_BUTTON_SIZE,
-    controlButtonRadius: DEFAULT_CONTROL_BUTTON_RADIUS,
+    controlButtonSize: 38,
+    controlButtonRadius: 12,
     controlButtonColor: "rgba(0, 0, 0, 0.24)",
     controlButtonBorderColor: "rgba(255, 255, 255, 0.16)",
     controlButtonBorderWidth: 1,
-    controlButtonBlur: DEFAULT_CONTROL_BUTTON_BLUR,
+    controlButtonBlur: 14,
     progressColor: "#FFFFFF",
 }
 
@@ -924,7 +924,7 @@ export default function TheaterVideoPlayer(props: Props) {
         hideTimer.current = setTimeout(() => {
             if (focusWithinControlsRef.current) return
             setControlsVisible(false)
-        }, 2200)
+        }, AUTO_HIDE_MS)
     }
 
     // Controls must come back on their own whenever playback stops —
@@ -2098,7 +2098,7 @@ const PLAYBACK_CONTROLS: ControlsBlock<keyof PlaybackSettings> = {
         defaultValue: MOVED_SETTING_DEFAULTS.autoHideControls,
         enabledTitle: "On",
         disabledTitle: "Off",
-        description: "Hide controls after 2.2s of inactivity while playing.",
+        description: `Hide controls after ${AUTO_HIDE_MS / 1000}s of inactivity while playing.`,
     },
 }
 
