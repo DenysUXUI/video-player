@@ -229,8 +229,8 @@ function parseAspectRatio(ratio: "16:9" | "9:16" | "1:1" | "4:5"): number {
 }
 
 const PROGRESS_TRACK_HEIGHT = 6
-// The unplayed part of the bar. Dark like the buttons, so the white played part
-// and the handle stand out on a white video too. Not a setting.
+// The unplayed part of the bar. Dark like the buttons, so the played part and
+// the white handle stand out on a white video too. Not a setting.
 const PROGRESS_TRACK_COLOR = "rgba(0, 0, 0, 0.24)"
 // A light hairline inside its edge, like the stroke of the buttons. Without it
 // the dark track all but vanished on a dark video.
@@ -753,6 +753,8 @@ function useTheaterMode({
 //     controls read on a white video.
 //   BG Color: white 12%, rgba(255, 255, 255, 0.12), became black 12%, a dark
 //     glass frame like the buttons.
+//   Progress Color: white, #FFFFFF, became amber #FFB300, so the played part
+//     reads on any video and stands apart from the white handle.
 // A player where someone set one of these keeps that colour.
 const MOVED_SETTING_DEFAULTS: MovedSettings = {
     aspectRatio: "16:9",
@@ -772,13 +774,13 @@ const MOVED_SETTING_DEFAULTS: MovedSettings = {
     controlButtonBorderColor: "rgba(255, 255, 255, 0.16)",
     controlButtonBorderWidth: 1,
     controlButtonBlur: 14,
-    progressColor: "#FFFFFF",
+    progressColor: "#FFB300",
 }
 
 const MOVED_SETTINGS = Object.keys(MOVED_SETTING_DEFAULTS) as (keyof MovedSettings)[]
 
 // One spelling for one colour. An untouched colour comes as written in the code
-// (#FFFFFF) on the canvas and in Framer's format (rgb(255, 255, 255)) on a published
+// (#FFB300) on the canvas and in Framer's format (rgb(255, 179, 0)) on a published
 // page. Counted as two values, a group colour would lose to the old name on published
 // sites only. Two spellings match only when they give the same colour on screen,
 // 8 bits per channel. Any other string comes back as it is.
