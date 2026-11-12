@@ -912,8 +912,10 @@ export default function TheaterVideoPlayer(props: Props) {
     const [loadError, setLoadError] = useState(false)
     const [warmedUp, setWarmedUp] = useState(false)
     const [thumbWidth, setThumbWidth] = useState(0)
-    // True when this player came from server HTML (a published page's first
-    // load), false when React built it in the browser. Fixed at mount.
+    // `hydrated`: true when this player came from server HTML (a published
+    // page's first load), false when React built it in the browser. The
+    // store answers "client" again right after hydration, so the first
+    // answer is kept in state.
     const isClientRender = useSyncExternalStore(subscribeNever, () => true, () => false)
     const [hydrated] = useState(() => !isClientRender)
 
@@ -1567,7 +1569,7 @@ export default function TheaterVideoPlayer(props: Props) {
                 flexDirection: "column",
                 boxSizing: "border-box",
                 userSelect: "none",
-                // Framer injects position/width/height here
+                // Framer passes the size here: width, height, sometimes a max size
                 ...style,
                 // Theater mode overrides geometry
                 ...theaterStyle,
@@ -1591,8 +1593,9 @@ export default function TheaterVideoPlayer(props: Props) {
             onFocus={warmUp}
         >
             {/* Inner video frame.
-                aspectRatio gives it a natural height in Framer "Fit" mode.
-                flex: "1 1 auto" lets it expand in fixed-height mode (flex overrides ratio). */}
+                aspectRatio gives it a natural height: Framer sizes the player by its content.
+                flex: "1 1 auto" lets it fill a height set from outside, as in theater mode
+                or with a max height from the panel (flex overrides the ratio). */}
             <div
                 style={{
                     flex: "1 1 auto",
