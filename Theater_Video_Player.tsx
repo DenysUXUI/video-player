@@ -203,11 +203,14 @@ const controlIconStyle: CSSProperties = {
     pointerEvents: "none",
 }
 
+// A soft dark edge keeps the white icons readable on a white video;
+// on a dark video it disappears.
 const controlIconInnerStyle: CSSProperties = {
     display: "grid",
     placeItems: "center",
     width: 18,
     height: 18,
+    filter: "drop-shadow(0 0 1px rgba(0,0,0,0.45)) drop-shadow(0 1px 2px rgba(0,0,0,0.35))",
 }
 
 // Convert designer-facing aspect ratio enum into numeric width/height
@@ -231,6 +234,8 @@ const PROGRESS_TRACK_COLOR = "rgba(0, 0, 0, 0.24)"
 const PROGRESS_THUMB_WIDTH = 10
 const PROGRESS_THUMB_HEIGHT = 18
 const PROGRESS_THUMB_RADIUS = 4
+// A hairline and a soft shadow, so the white handle shows on a white video too
+const PROGRESS_THUMB_SHADOW = "0 0 0 0.5px rgba(0,0,0,0.2), 0 1px 3px rgba(0,0,0,0.4)"
 // The browser reports the playback position about every 0.25 s. A glide a
 // little longer than that gap is picked up by the next report before it
 // ends, so the bar moves at an even speed instead of in jerks.
@@ -1798,7 +1803,11 @@ export default function TheaterVideoPlayer(props: Props) {
                                 lineHeight: 0,
                             }}
                         >
-                            <IconSpinner slow={prefersReducedMotion()} />
+                            {/* The shadow sits on a still wrapper, so it stays
+                                below the icon while the icon turns */}
+                            <span style={controlIconInnerStyle}>
+                                <IconSpinner slow={prefersReducedMotion()} />
+                            </span>
                             <span style={visuallyHiddenStyle}>Loading video</span>
                         </span>
                     )}
@@ -1973,8 +1982,8 @@ export default function TheaterVideoPlayer(props: Props) {
                                     background: "white",
                                     transform: "translateX(-50%)",
                                     boxShadow: progressFocused
-                                        ? "0 1px 4px rgba(0,0,0,0.18), 0 0 0 2px rgba(255,255,255,0.9)"
-                                        : "0 1px 4px rgba(0,0,0,0.18)",
+                                        ? `${PROGRESS_THUMB_SHADOW}, 0 0 0 2px rgba(255,255,255,0.9)`
+                                        : PROGRESS_THUMB_SHADOW,
                                     transition: progressMotion ? `left ${progressMotion}` : "none",
                                 }}
                             />
