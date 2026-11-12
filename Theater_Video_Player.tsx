@@ -361,23 +361,12 @@ function getTheaterStyle(framePadding: number, aspect: number, transition = "non
     const width = videoWidth + framePadding * 2
     const height = videoHeight + framePadding * 2
 
-    return {
-        position: "fixed",
+    return rectToFixedStyle({
         top: margin + (maxHeight - height) / 2,
         left: margin + (maxWidth - width) / 2,
-        right: "auto",
-        bottom: "auto",
         width,
         height,
-        margin: 0,
-        color: "inherit",
-        maxWidth: "none",
-        maxHeight: "none",
-        zIndex: 9999,
-        transform: "none",
-        willChange: "top, left, width, height",
-        transition,
-    }
+    }, transition)
 }
 
 // Reusable icon control for controls row
