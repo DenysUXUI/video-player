@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project is
 
-A **single-file Framer code component** (`Theater_Video_Player.tsx`, ~1100 lines). The file is not built locally — it is copy-pasted by the owner into Framer's code editor, which compiles it in the Framer environment. Treat this repository as a versioned source-of-truth for that snippet, not as a buildable application.
+A **single-file Framer code component** (`Theater_Video_Player.tsx`, ~2300 lines). The file is not built locally — it is copy-pasted by the owner into Framer's code editor, which compiles it in the Framer environment. Treat this repository as a versioned source-of-truth for that snippet, not as a buildable application.
 
-There is no `package.json`, no `node_modules`, no test runner, and no lint config. There are no commands to run. All "tooling" is the Framer canvas itself.
+There is no `package.json`, no `node_modules`, no test runner, and no lint config. There are no commands to run. All "tooling" is the Framer canvas itself. Type checks and the behaviour test stand are kept outside the repository, in `~/Desktop/Agents/Projects/video-player-stand/` (see its `README.md`).
 
 ## How changes reach production
 
@@ -22,13 +22,14 @@ The file is organized top-to-bottom in this order, and changes should preserve t
 
 1. **JSDoc header** describing the component.
 2. **Imports** — `react` and `framer` only.
-3. **`Props` interface** — every prop that the component accepts. Must stay in sync with the `addPropertyControls(...)` block at the bottom.
+3. **`Props` and the settings interfaces** (`FrameSettings`, `PlaybackSettings`, `ControlsSettings`) — every prop that the component accepts. Must stay in sync with the property controls at the bottom.
 4. **Pure helpers** — `formatTime`, icon components, `rectToFixedStyle`, `getTheaterStyle`, `prefersReducedMotion`, etc.
-5. **Constants** — animation timings, sizing defaults, breakpoints (`THEATER_*`, `PROGRESS_*`, `MOBILE_NATIVE_FULLSCREEN_MAX_WIDTH`).
+5. **Constants** — timings, sizes, breakpoints (`THEATER_*`, `PROGRESS_*`, `AUTO_HIDE_MS`, `MOBILE_NATIVE_FULLSCREEN_MAX_WIDTH`). The defaults of the settings live in `MOVED_SETTING_DEFAULTS`.
 6. **`ControlBtn`** — reusable icon button used by the controls row.
 7. **`useTheaterMode` hook** — owns the theater open/close transitions, Escape-to-close listener, rAF-throttled resize handler, and native mobile-fullscreen fallback. The main component is intentionally kept thin by delegating this state machine here.
-8. **`TheaterVideoPlayer` default export** — the component itself. Includes the Framer magic JSDoc directives (`@framerSupportedLayoutWidth`, `@framerSupportedLayoutHeight`, `@framerIntrinsicWidth`, `@framerIntrinsicHeight`) that control how Framer sizes the component on the canvas. These comments are load-bearing — do not remove or reformat them.
-9. **`addPropertyControls(TheaterVideoPlayer, { ... })`** — the property-panel schema. Every field here must match a key in `Props`.
+8. **Settings under two names** — `MOVED_SETTING_DEFAULTS`, `colorKey`, `isChangedSetting`, `readSettings`. The component reads every moved setting through `readSettings` (see "Settings under two names" below).
+9. **`TheaterVideoPlayer` default export** — the component itself. Includes the Framer magic JSDoc directives (`@framerSupportedLayoutWidth`, `@framerSupportedLayoutHeight`, `@framerIntrinsicWidth`, `@framerIntrinsicHeight`) that control how Framer sizes the component on the canvas. These comments are load-bearing — do not remove or reformat them.
+10. **Property controls** — the control blocks (`FRAME_SIZE_CONTROLS`, `PLAYBACK_CONTROLS`, `FRAME_LOOK_CONTROLS`, `BUTTON_CONTROLS`), the old flat panel built from them, and `addPropertyControls(TheaterVideoPlayer, { ... })`. Every field must match a key in `Props`.
 
 ## Things that are easy to break
 
