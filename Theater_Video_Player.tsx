@@ -742,7 +742,11 @@ function useTheaterMode({
 // That is why these 18 settings exist twice. The old flat names keep the old
 // values and show in the panel of a player that has one of them changed. The
 // groups (frameProps, playbackProps, controlsProps) show on every other player.
-// Never rename or remove an old name, and never change one of these defaults.
+// Never rename or remove an old name. A default is also the look of every player
+// where that setting was never changed, so changing one restyles those players
+// after an update. Done once on purpose in v1.1: Button Color went from white 10%
+// (rgba(255, 255, 255, 0.1)) to black 24%, so the controls read on a white video.
+// A player where someone set Button Color keeps that colour.
 const MOVED_SETTING_DEFAULTS: MovedSettings = {
     aspectRatio: "16:9",
     objectFit: "cover",
@@ -757,7 +761,7 @@ const MOVED_SETTING_DEFAULTS: MovedSettings = {
     autoHideControls: false,
     controlButtonSize: DEFAULT_CONTROL_BUTTON_SIZE,
     controlButtonRadius: DEFAULT_CONTROL_BUTTON_RADIUS,
-    controlButtonColor: "rgba(255, 255, 255, 0.1)",
+    controlButtonColor: "rgba(0, 0, 0, 0.24)",
     controlButtonBorderColor: "rgba(255, 255, 255, 0.16)",
     controlButtonBorderWidth: 1,
     controlButtonBlur: DEFAULT_CONTROL_BUTTON_BLUR,
