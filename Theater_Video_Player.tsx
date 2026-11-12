@@ -748,16 +748,19 @@ function useTheaterMode({
 // groups (frameProps, playbackProps, controlsProps) show on every other player.
 // Never rename or remove an old name. A default is also the look of every player
 // where that setting was never changed, so changing one restyles those players
-// after an update. Done once on purpose in v1.1: Button Color went from white 10%
-// (rgba(255, 255, 255, 0.1)) to black 24%, so the controls read on a white video.
-// A player where someone set Button Color keeps that colour.
+// after an update. Done on purpose in v1.1, the old values are kept here:
+//   Button Color: white 10%, rgba(255, 255, 255, 0.1), became black 24%, so the
+//     controls read on a white video.
+//   BG Color: white 12%, rgba(255, 255, 255, 0.12), became black 12%, a dark
+//     glass frame like the buttons.
+// A player where someone set one of these keeps that colour.
 const MOVED_SETTING_DEFAULTS: MovedSettings = {
     aspectRatio: "16:9",
     objectFit: "cover",
     padding: 8,
     borderRadius: 16,
     borderOpacity: 0.3,
-    backgroundColor: "rgba(255, 255, 255, 0.12)",
+    backgroundColor: "rgba(0, 0, 0, 0.12)",
     blurAmount: 20,
     loop: true,
     mutedByDefault: true,
