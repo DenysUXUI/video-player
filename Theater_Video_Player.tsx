@@ -225,6 +225,9 @@ const DEFAULT_CONTROL_BUTTON_SIZE = 38
 const DEFAULT_CONTROL_BUTTON_RADIUS = 12
 const DEFAULT_CONTROL_BUTTON_BLUR = 14
 const PROGRESS_TRACK_HEIGHT = 6
+// The unplayed part of the bar. Dark like the buttons, so the white played part
+// and the handle stand out on a white video too. Not a setting.
+const PROGRESS_TRACK_COLOR = "rgba(0, 0, 0, 0.24)"
 const PROGRESS_THUMB_WIDTH = 10
 const PROGRESS_THUMB_HEIGHT = 18
 const PROGRESS_THUMB_RADIUS = 4
@@ -1943,7 +1946,7 @@ export default function TheaterVideoPlayer(props: Props) {
                                     right: 0,
                                     top: (PROGRESS_THUMB_HEIGHT - PROGRESS_TRACK_HEIGHT) / 2,
                                     height: PROGRESS_TRACK_HEIGHT,
-                                    background: "rgba(255,255,255,0.18)",
+                                    background: PROGRESS_TRACK_COLOR,
                                     borderRadius: 999,
                                 }}
                             />
