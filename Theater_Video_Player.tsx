@@ -213,6 +213,10 @@ const controlIconInnerStyle: CSSProperties = {
     filter: "drop-shadow(0 0 1px rgba(0,0,0,0.45)) drop-shadow(0 1px 2px rgba(0,0,0,0.35))",
 }
 
+// Keyboard focus ring of the buttons and the handle: white, with a dark
+// hairline outside it, so the ring shows on a white video too
+const FOCUS_RING = "0 0 0 2px rgba(255,255,255,0.9), 0 0 0 3px rgba(0,0,0,0.45)"
+
 // Convert designer-facing aspect ratio enum into numeric width/height
 function parseAspectRatio(ratio: "16:9" | "9:16" | "1:1" | "4:5"): number {
     switch (ratio) {
@@ -385,7 +389,7 @@ function ControlBtn({ ariaLabel, onClick, onMouseEnter, onMouseLeave, onMouseDow
 }) {
     const [focused, setFocused] = useState(false)
     const focusedStyle: CSSProperties = focused
-        ? { boxShadow: "0 0 0 2px rgba(255,255,255,0.9)" }
+        ? { boxShadow: FOCUS_RING }
         : {}
     return (
         <button
@@ -1977,7 +1981,7 @@ export default function TheaterVideoPlayer(props: Props) {
                                     background: "white",
                                     transform: "translateX(-50%)",
                                     boxShadow: progressFocused
-                                        ? `${PROGRESS_THUMB_SHADOW}, 0 0 0 2px rgba(255,255,255,0.9)`
+                                        ? `${PROGRESS_THUMB_SHADOW}, ${FOCUS_RING}`
                                         : PROGRESS_THUMB_SHADOW,
                                     transition: progressMotion ? `left ${progressMotion}` : "none",
                                 }}
