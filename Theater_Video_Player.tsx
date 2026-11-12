@@ -1543,7 +1543,6 @@ export default function TheaterVideoPlayer(props: Props) {
     const borderColor = `rgba(255,255,255,${borderOpacity})`
     // Static renders (canvas, export) always show the controls
     const controlsAreVisible = isStaticRenderer || !autoHideControls || controlsVisible
-    const barAlpha = controlsAreVisible ? 1 : 0
     const innerRadius = Math.max(0, borderRadius - padding)
     const progress = durationSeconds > 0
         ? Math.min(1, Math.max(0, currentTime / durationSeconds))
@@ -1571,7 +1570,7 @@ export default function TheaterVideoPlayer(props: Props) {
                 // Framer injects position/width/height here
                 ...style,
                 // Theater mode overrides geometry
-                ...(theaterStyle ?? {}),
+                ...theaterStyle,
                 // Visual properties last — always win over Framer's injected styles
                 borderRadius,
                 border: `1px solid ${borderColor}`,
@@ -1731,7 +1730,7 @@ export default function TheaterVideoPlayer(props: Props) {
                     }}
                 />
 
-                {showThumbnail && thumbnailSrc && (
+                {showThumbnail && (
                     <img
                         ref={thumbRef}
                         // sizes before srcSet before src: each lands with
@@ -1852,7 +1851,7 @@ export default function TheaterVideoPlayer(props: Props) {
                         // order and for screen readers, so an autoplaying video
                         // can always be paused (WCAG 2.2.2). Tabbing in brings
                         // them back.
-                        opacity: barAlpha,
+                        opacity: controlsAreVisible ? 1 : 0,
                         transition: "opacity 0.3s",
                         zIndex: 2,
                         pointerEvents: controlsAreVisible ? "auto" : "none",
